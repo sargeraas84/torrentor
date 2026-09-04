@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Torrentor — one query, every legal torrent source, at once</title>
+  <meta name="description" content="Torrentor fans one search out to Internet Archive, official Linux and Arch releases and more — in parallel, deduped, and honest. A legal-first peer-to-peer meta-search for Windows." />
+  <meta property="og:title" content="Torrentor" />
+  <meta property="og:description" content="One query, every legal torrent source, at once. Parallel search across Archive.org, Ubuntu, Debian, Arch Linux and more." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/site.css" />
+  <noscript><style>.rv { opacity: 1 !important; transform: none !important; filter: none !important; }</style></noscript>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="mesh" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- ================= floating glass nav ================= -->
+  <nav class="nav" aria-label="Primary">
+    <div class="nav-pill">
+      <a class="brand" href="index.html" aria-label="Torrentor home">
+        <img src="assets/mark.svg" alt="" width="26" height="26" />
+        Torrentor
+      </a>
+      <div class="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#sources">Sources</a>
+        <a href="index.html#vpn">VPN &amp; privacy</a>
+        <a href="index.html#download">Download</a>
+        <a href="docs.html">Docs</a>
+      </div>
+      <a class="nav-cta" href="index.html#download">Get it</a>
+      <button class="burger" type="button" aria-expanded="false" aria-label="Open menu" aria-controls="menu-overlay">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- full-screen glass menu -->
+  <div class="overlay" id="menu-overlay" role="dialog" aria-label="Menu">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#sources">Sources</a>
+    <a href="index.html#vpn">VPN &amp; privacy</a>
+    <a href="index.html#download">Download</a>
+    <a href="docs.html">Documentation</a>
+    <a href="https://github.com/sargeraas84/torrentor">GitHub ↗</a>
+  </div>
+
+  <main id="main">
+    <!-- ================= hero ================= -->
+    <header class="hero">
+      <div class="wrap">
+        <div class="hero-grid">
+          <div class="rv">
+            <span class="eyebrow"><span class="dot"></span>Legal-first P2P meta-search · Windows</span>
+            <h1>One query.<br />Every source.<br /><span class="grad">At once.</span></h1>
+            <p class="sub">
+              Torrentor fans a single search out to Internet Archive, official Ubuntu &amp; Debian
+              releases, Arch Linux and more — in parallel, merged by infohash, streamed in as each
+              source answers. No accounts. No telemetry. No piracy scrapers.
+            </p>
+            <div class="meta-line">
+              <span><b>4</b> sources · allowlisted</span>
+              <span><b>1</b> merged result list</span>
+              <span><b>0</b> fabricated results</span>
+              <span>open source · <b>MIT-friendly</b></span>
+            </div>
+            <div class="btn-row">
+              <a class="btn" href="index.html#download">Download for Windows
+                <span class="ic" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg>
+                </span>
+              </a>
+              <a class="btn ghost" href="docs.html">Read the docs
+                <span class="ic" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </span>
+              </a>
+            </div>
+          </div>
+
+          <!-- app mockup -->
+          <div class="mock rv" data-d="2" aria-hidden="true">
+            <span class="float-chip fc1"><b>37</b> unique results · 4/4 sources</span>
+            <span class="float-chip fc2">real before demo · <b>always</b></span>
+            <span class="float-chip fc3">honest gate on</span>
+            <div class="bezel">
+              <div class="core mock">
+                <div class="mock-head">
+                  <div class="traffic"><i></i><i></i><i></i></div>
+                  <div class="bar">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8494ab" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                    <span>public domain films</span>
+                  </div>
+                  <div class="go">→</div>
+                </div>
+                <div class="mock-body">
+                  <div class="chiprow">
+                    <span class="chip on">Internet Archive</span>
+                    <span class="chip on">Linux releases</span>
+                    <span class="chip on">Arch Linux</span>
+                    <span class="chip">Demo</span>
+                  </div>
+                  <div class="mock-card">
+                    <div class="thumb">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5eead4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l4.5-4.5L12 15l3-3 6 6"/><circle cx="15.5" cy="9.5" r="1.3"/></svg>
+                    </div>
+                    <div>
+                      <div class="ttl">The Films of Robert Kramer</div>
+                      <div class="meta">Robert Kramer — 1978 · Internet Archive · movies</div>
+                    </div>
+                    <div class="size">—<small>official torrent</small></div>
+                  </div>
+                  <div class="mock-card">
+                    <div class="thumb">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7ce7f7" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+                    </div>
+                    <div>
+                      <div class="ttl"><span class="badge-official">Official</span>ubuntu-24.04.4-desktop-amd64.iso</div>
+                      <div class="meta">Ubuntu — 2026 · Linux releases</div>
+                    </div>
+                    <div class="size">6.2 GB<small>seeds real</small></div>
+                  </div>
+                  <div class="mock-card">
+                    <div class="thumb">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a5eefb" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9"/></svg>
+                    </div>
+                    <div>
+                      <div class="ttl"><span class="badge-official">Official</span>archlinux-2026.09.01-x86_64.iso</div>
+                      <div class="meta">Arch Linux — 3 days ago · infohash + magnet</div>
+                    </div>
+                    <div class="size">1.5 GB<small>magnet ready</small></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ================= features ================= -->
+    <section id="features">
+      <div class="wrap">
+        <span class="eyebrow rv"><span class="dot"></span>Why Torrentor</span>
+        <h2 class="rv" data-d="1">A search engine, not a<br />downloader&nbsp;— <span class="grad">made honest</span></h2>
+        <p class="lead rv" data-d="2">Torrentor doesn't scrape pirate indexes and it doesn't fabricate results to look alive. Every card is a real file from a source that publishes torrents, with its size, source and links intact.</p>
+
+        <div class="bento">
+          <!-- wide: parallel stream -->
+          <div class="cell wide rv" data-d="1">
+            <div class="bezel"><div class="core">
+              <div class="ic-tile">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h12M2 12h8M2 17h16"/><path d="M18 4l4 3-4 3M20 15l2 2-2 2"/></svg>
+              </div>
+              <h3>Parallel search, live streaming</h3>
+              <p>One query runs against every enabled source at once. Cards appear the moment each source answers — not after the slowest one finishes — and a watchdog guarantees no engine can hang a run.</p>
+              <div class="stream">
+                <div class="row"><span class="nm">Internet Archive</span><span class="bar"><i></i></span><span class="cnt">21</span></div>
+                <div class="row"><span class="nm">Linux releases</span><span class="bar"><i></i></span><span class="cnt">12</span></div>
+                <div class="row"><span class="nm">Arch Linux</span><span class="bar"><i></i></span><span class="cnt">1</span></div>
+                <div class="row"><span class="nm">Demo (offline)</span><span class="bar"><i></i></span><span class="cnt">3</span></div>
+                <div class="row done"><span class="nm">Merged</span><span>deduped by infohash → 34 unique</span></div>
+              </div>
+            </div></div>
+          </div>
+
+          <div class="cell rv" data-d="2">
+            <div class="bezel"><div class="core">
+              <div class="ic-tile">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.4 11l7.2-3.8M8.4 13l7.2 3.8"/></svg>
+              </div>
+              <h3>Smart merge</h3>
+              <p>Duplicates across sources collapse into one card with an “also on …” badge. Ordering rules keep real results above demo fixtures, and relevance before size.</p>
+            </div></div>
+          </div>
+
+          <div class="cell rv" data-d="3">
+            <div class="bezel"><div class="core">
+              <div class="ic-tile">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l7 7v9H4V4z"/><path d="M13 4v7h7"/><path d="M8 12h6M8 16h6"/></svg>
+              </div>
+              <h3>Rich cards</h3>
+              <p>Category, size, seeders/leechers, age, infohash preview, source badges — and Archive items show creator, year and their poster.</p>
+            </div></div>
+          </div>
+
+          <div class="cell rv" data-d="4">
+            <div class="bezel"><div class="core">
+              <div class="ic-tile">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
+              </div>
+              <h3>VPN / proxy route</h3>
+              <p>Every outbound search request goes through your own VPN or proxy — HTTP, SOCKS4/5, auth — with a one-click exit-IP check. Enforced in main, not the page.</p>
+            </div></div>
+          </div>
+
+          <div class="cell rv" data-d="1">
+            <div class="bezel"><div class="core">
+              <div class="ic-tile">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>
+              </div>
+              <h3>Source health</h3>
+              <p>A self-test probes every real source with a known-good query. Silent regressions — site redesigns that return zero results — show up as red dots, never green chips.</p>
+            </div></div>
+          </div>
+
+          <div class="cell wide rv" data-d="2">
+            <div class="bezel"><div class="core">
+              <div class="ic-tile">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/><path d="M3 12h4M17 12h4"/></svg>
+              </div>
+              <h3>Open-culture browse</h3>
+              <p>An idle “Explore open culture” row — public-domain films, old-time radio, LibriVox, silent cinema, 78rpm, NASA imagery — fires the same honest search, with Archive mediatype chips (Movies · Audio · Texts · Software) that filter the real classification.</p>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= sources ================= -->
+    <section id="sources">
+      <div class="wrap">
+        <span class="eyebrow rv"><span class="dot"></span>The allowlist</span>
+        <h2 class="rv" data-d="1">Shipped sources</h2>
+        <p class="lead rv" data-d="2">Engines are reviewed before they ship and the app never loads search plugins from the network. Default sources are legal-friendly, so a fresh install is useful and safe — and the registry is open for the sources you own.</p>
+
+        <div class="src-grid">
+          <div class="cell rv" data-d="1">
+            <div class="bezel"><div class="core">
+              <div class="src-idx demo">D</div>
+              <div>
+                <h3>Demo index</h3>
+                <p class="src-tag">offline · <b>always works</b></p>
+                <p>A clearly-labeled sample corpus so the whole flow works with zero network. Every card carries a <b>Demo</b> badge and a synthetic infohash — a UI fixture, not a download.</p>
+              </div>
+            </div></div>
+          </div>
+          <div class="cell rv" data-d="2">
+            <div class="bezel"><div class="core">
+              <div class="src-idx">A</div>
+              <div>
+                <h3>Internet Archive</h3>
+                <p class="src-tag">official · <b>tens of millions of items</b></p>
+                <p>Real full-text search of Archive.org's catalog — public-domain &amp; CC media, books, software, data — nearly all with official <code>_archive.torrent</code> downloads.</p>
+              </div>
+            </div></div>
+          </div>
+          <div class="cell rv" data-d="3">
+            <div class="bezel"><div class="core">
+              <div class="src-idx">L</div>
+              <div>
+                <h3>Linux releases</h3>
+                <p class="src-tag">official · <b>Ubuntu + Debian</b></p>
+                <p>Official Ubuntu &amp; Debian ISO <code>.torrent</code> files pulled straight from the projects' release pages — newest point release per series, with real payload sizes.</p>
+              </div>
+            </div></div>
+          </div>
+          <div class="cell rv" data-d="4">
+            <div class="bezel"><div class="core">
+              <div class="src-idx">A</div>
+              <div>
+                <h3>Arch Linux</h3>
+                <p class="src-tag">official · <b>monthly ISOs</b></p>
+                <p>Official Arch monthly ISO torrents — infohash, magnet and <code>.torrent</code> URL per release — from Arch's public release feed.</p>
+              </div>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="bezel rv" style="margin-top: 18px;">
+          <div class="core" style="flex-direction: row; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap;">
+            <div style="max-width: 46ch;">
+              <h3 style="margin-bottom: 6px;">Add your own source</h3>
+              <p style="color: var(--mut); font-size: 14px; margin: 0;">Any provider you want — a community index, a tracker, a self-hosted catalog — is one adapter file plus one registry line. Review the source's terms before adding it: you're the operator.</p>
+            </div>
+            <a class="btn ghost" href="docs.html#adding-sources">
+              How adding sources works
+              <span class="ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= vpn ================= -->
+    <section id="vpn">
+      <div class="wrap">
+        <div class="split">
+          <div class="rv">
+            <span class="eyebrow"><span class="dot"></span>VPN &amp; privacy</span>
+            <h2>Your VPN, <span class="grad">enforced</span> — not bundled</h2>
+            <p class="lead">Torrentor deliberately doesn't sell you a VPN. Instead it makes any VPN you already run enforceable for search traffic, and proves it with an exit-IP check.</p>
+            <ol class="steps">
+              <li>
+                <div>
+                  <b>Run any VPN or local proxy</b>
+                  <p>WireGuard / OpenVPN / Tailscale apps, Tor (<code>socks5://127.0.0.1:9050</code>), or <code>ssh -D 1080</code> — all work.</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <b>Point Torrentor at it</b>
+                  <p>Settings → VPN &amp; privacy → pick the proxy type, enter host/port (and credentials if needed), hit <b>Save &amp; check IP</b>.</p>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <b>Confirm the exit address</b>
+                  <p>The IP check shows the address the world sees, so you can verify the VPN is actually on — the source of truth, since the app can't detect your VPN by itself.</p>
+                </div>
+              </li>
+            </ol>
+            <div class="note">
+              <b>Honest notes.</b> The proxy applies to Torrentor's own search traffic. Actual file downloads happen in your torrent client, whose network settings govern them.
+            </div>
+          </div>
+          <div class="rv" data-d="2">
+            <div class="bezel">
+              <div class="core">
+                <h3>What “routed” means here</h3>
+                <p style="color: var(--mut); font-size: 14px;">Every outbound engine request — Archive.org API calls, Ubuntu release pages, Arch feeds, IP checks — flows through the route you configured, from a single network module in the main process. Nothing in the page ever touches the network directly, so no engine can bypass the route.</p>
+                <div class="stream">
+                  <div class="row"><span class="nm">archive.org</span><span class="bar"><i></i></span><span class="cnt">via proxy</span></div>
+                  <div class="row"><span class="nm">releases.ubuntu.com</span><span class="bar"><i></i></span><span class="cnt">via proxy</span></div>
+                  <div class="row"><span class="nm">archlinux.org</span><span class="bar"><i></i></span><span class="cnt">via proxy</span></div>
+                  <div class="row done"><span class="nm">exit IP</span><span>31.39.184.96 — Montévrain, FR</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= download ================= -->
+    <section id="download">
+      <div class="wrap">
+        <div style="max-width: 680px;">
+          <span class="eyebrow rv"><span class="dot"></span>Get Torrentor</span>
+          <h2 class="rv" data-d="1">Runs on Windows.<br />Built from <span class="grad">source</span> in seconds.</h2>
+          <p class="lead rv" data-d="2">Requires Node.js 20+. Prebuilt installers ship with the 1.1 release — until then, three commands get you a running app or a portable <code>.exe</code>.</p>
+        </div>
+
+        <div style="max-width: 760px; margin-top: 20px;">
+          <div class="cmd rv" data-d="1">
+            <code>git clone https://github.com/sargeraas84/torrentor.git</code>
+            <button class="cpy" type="button">copy</button>
+          </div>
+          <div class="cmd rv" data-d="2">
+            <code>cd torrentor &amp;&amp; npm install &amp;&amp; npm start</code>
+            <button class="cpy" type="button">copy</button>
+          </div>
+          <div class="cmd rv" data-d="3">
+            <code>npm run dist&nbsp;&nbsp;# → portable Torrentor.exe</code>
+            <button class="cpy" type="button">copy</button>
+          </div>
+          <div class="note rv" data-d="4">
+            <b>Why source-first?</b> Torrentor is open source on GitHub — no installer you can't inspect, no telemetry, no accounts. The 1.1 release adds a signed portable build; until then <code>npm run dist</code> produces the same <code>.exe</code> locally.
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= footer ================= -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-grid">
+        <a class="brand" href="index.html" style="font-size: 16px;">
+          <img src="assets/mark.svg" alt="" width="28" height="28" />
+          Torrentor
+        </a>
+        <div class="cols">
+          <div>
+            <h4>Product</h4>
+            <ul>
+              <li><a href="index.html#features">Features</a></li>
+              <li><a href="index.html#sources">Sources</a></li>
+              <li><a href="index.html#vpn">VPN &amp; privacy</a></li>
+              <li><a href="index.html#download">Download</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Docs</h4>
+            <ul>
+              <li><a href="docs.html#quick-start">Quick start</a></li>
+              <li><a href="docs.html#adding-sources">Adding sources</a></li>
+              <li><a href="docs.html#vpn-config">VPN config</a></li>
+              <li><a href="docs.html#engine-health">Engine health</a></li>
+              <li><a href="docs.html#architecture">Architecture</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Project</h4>
+            <ul>
+              <li><a href="https://github.com/sargeraas84/torrentor">GitHub ↗</a></li>
+              <li><a href="https://github.com/sargeraas84/torrentor/releases">Releases ↗</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <p class="foot-note">Torrentor searches legal-friendly catalogs that publish torrents: Archive.org, official Linux distributions and Arch Linux. It doesn't scrape pirate indexes, and it doesn't bundle a VPN — you bring your own. Favorites and history live in plain JSON on your machine. No account, no cloud, no telemetry.</p>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>
