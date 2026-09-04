@@ -41,6 +41,8 @@ const SMOKE_MODE = !!process.env.TORRENTOR_SMOKE;
 const dataDir = () => (SMOKE_MODE && process.env.TORRENTOR_DATA_DIR) || app.getPath('userData');
 
 let mainWindow = null;
+let splashWindow = null; // animated launcher shown while the UI boots
+let mainReady = false; // main window rendered and safe to show
 let storage = null;
 let currentAbort = null; // AbortController for the in-flight search
 let runCounter = 0; // monotonically increasing run id (stale-result guard)
@@ -61,9 +63,19 @@ async function bootstrap() {
   storage = new Storage(dataDir());
   applyProxyPrefs();
 
+  createSplash();
   createWindow();
   registerIpc();
   registerEvents();
+
+  // Safety net: if the renderer ever stalls, never leave the splash up.
+  if (!SMOKE_MODE) {
+    setTimeout(() => {
+      if (mainReady) return;
+      closeSplash();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+    }, 10000);
+  }
 
   // Re-apply the proxy route if the process outlives a config change.
   app.on('before-quit', () => {
@@ -78,6 +90,41 @@ function applyProxyPrefs() {
 }
 
 // --------------------------------------------------------------- window
+
+/** Animated launcher (resources/splash.html) shown while the UI boots. */
+function createSplash() {
+  if (SMOKE_MODE) return; // the test harness drives the window itself
+  splashWindow = new BrowserWindow({
+    width: 440,
+    height: 330,
+    frame: false,
+    resizable: false,
+    show: false,
+    skipTaskbar: true,
+    backgroundColor: '#060b14',
+    icon: path.join(__dirname, 'resources', 'icon.ico'),
+  });
+  splashWindow.loadFile(path.join(__dirname, 'resources', 'splash.html'));
+  splashWindow.once('ready-to-show', () => {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.show();
+  });
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+}
+
+/** Fade the launcher out (main is ready) and destroy it. */
+function closeSplash() {
+  const w = splashWindow;
+  if (!w || w.isDestroyed()) return;
+  splashWindow = null;
+  w.webContents
+    .executeJavaScript("document.body.classList.add('closing')")
+    .catch(() => {});
+  setTimeout(() => {
+    if (!w.isDestroyed()) w.destroy();
+  }, 420);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -101,7 +148,9 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
+    mainReady = true;
     if (SMOKE_MODE) return; // the smoke harness drives the window itself
+    closeSplash();
     mainWindow.show();
   });
 
@@ -121,7 +170,7 @@ function createWindow() {
 }
 
 function showWindow() {
-  if (!mainWindow) return;
+  if (!mainWindow || !mainReady) return; // never surface an unrendered window
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();

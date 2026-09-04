@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Torrentor</title>
+<style>
+  :root {
+    --bg: #060b14;
+    --txt: #e6edf7;
+    --mut: #8494ab;
+    --acc: #22d3ee;
+    --acc2: #2dd4bf;
+    --spring: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    cursor: default;
+  }
+  /* ambient glow behind the mark */
+  .mesh {
+    position: fixed; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(26rem 20rem at 50% 42%, rgba(34, 211, 238, 0.10), transparent 62%),
+      radial-gradient(20rem 16rem at 50% 108%, rgba(45, 212, 191, 0.07), transparent 65%);
+  }
+  .stage {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    transition: opacity 0.4s ease, transform 0.45s var(--spring);
+  }
+  body.closing .stage { opacity: 0; transform: scale(0.96); }
+
+  /* ---- the mark: ring draws, magnet draws, tips fade, glow pulses ---- */
+  .mark { position: relative; width: 128px; height: 128px; }
+  .mark svg { width: 100%; height: 100%; display: block; }
+  #ring { stroke-dasharray: 260; stroke-dashoffset: 260; animation: draw 1.15s var(--spring) 0.15s forwards; }
+  #magnet { stroke-dasharray: 90; stroke-dashoffset: 90; animation: draw 0.8s var(--spring) 1.0s forwards; }
+  #tip-l, #tip-r { opacity: 0; animation: fade 0.3s ease-out 1.65s forwards; }
+  .halo {
+    position: absolute; inset: -14px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.28), rgba(45, 212, 191, 0.12) 55%, transparent 72%);
+    opacity: 0;
+    animation: halo 2.8s ease-in-out 1.7s infinite;
+  }
+  /* two particles pulled in by the magnet */
+  .orb { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #7ce7f7; opacity: 0; }
+  .orb.o1 { top: -8px; left: 50%; margin-left: -3px; animation: orbA 3.2s var(--spring) 2s infinite; }
+  .orb.o2 { bottom: 6px; left: 50%; margin-left: -3px; background: #5eead4; animation: orbB 3.6s var(--spring) 2.2s infinite; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+  @keyframes halo {
+    0%, 100% { opacity: 0.15; transform: scale(0.94); }
+    50% { opacity: 0.55; transform: scale(1.04); }
+  }
+  @keyframes orbA {
+    0% { transform: rotate(0deg) translateX(72px) scale(0.4); opacity: 0; }
+    12% { opacity: 1; }
+    45% { transform: rotate(200deg) translateX(26px) scale(1); opacity: 1; }
+    60% { transform: rotate(300deg) translateX(14px) scale(0.7); opacity: 0.2; }
+    100% { transform: rotate(720deg) translateX(72px) scale(0.4); opacity: 0; }
+  }
+  @keyframes orbB {
+    0% { transform: rotate(0deg) translateX(64px) scale(0.4); opacity: 0; }
+    12% { opacity: 1; }
+    45% { transform: rotate(-220deg) translateX(22px) scale(1); opacity: 1; }
+    60% { transform: rotate(-320deg) translateX(12px) scale(0.7); opacity: 0.2; }
+    100% { transform: rotate(-720deg) translateX(64px) scale(0.4); opacity: 0; }
+  }
+
+  /* ---- wordmark + tagline ---- */
+  .name {
+    font-size: 27px; font-weight: 750; letter-spacing: -0.02em; line-height: 1;
+    background: linear-gradient(92deg, #7ce7f7, #5eead4 55%, #2dd4bf);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    opacity: 0; transform: translateY(14px); filter: blur(6px);
+    animation: rise 0.7s var(--spring) 1.9s forwards;
+  }
+  .tagline {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--mut);
+    opacity: 0; transform: translateY(8px);
+    animation: rise 0.6s var(--spring) 2.25s forwards;
+  }
+  @keyframes rise { to { opacity: 1; transform: none; filter: none; } }
+
+  /* ---- indeterminate load shimmer ---- */
+  .load {
+    position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%);
+    width: 176px; height: 3px; border-radius: 3px;
+    background: rgba(28, 42, 66, 0.8); overflow: hidden;
+    opacity: 0; animation: fade 0.4s ease 1.3s forwards;
+  }
+  .load i {
+    position: absolute; inset: 0; border-radius: 3px;
+    background: linear-gradient(90deg, transparent, #22d3ee 45%, #2dd4bf 55%, transparent);
+    transform: translateX(-100%);
+    animation: sweep 1.5s var(--spring) 1.3s infinite;
+  }
+  @keyframes sweep { to { transform: translateX(100%); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    #ring, #magnet { stroke-dashoffset: 0; }
+    #tip-l, #tip-r, .name, .tagline, .load { opacity: 1; transform: none; filter: none; }
+    .halo, .orb { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="mesh" aria-hidden="true"></div>
+  <div class="stage">
+    <div class="mark" role="img" aria-label="Torrentor">
+      <div class="halo" aria-hidden="true"></div>
+      <span class="orb o1" aria-hidden="true"></span>
+      <span class="orb o2" aria-hidden="true"></span>
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#2dd4bf"/>
+          </linearGradient>
+          <linearGradient id="u" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#7ce7f7"/><stop offset="1" stop-color="#5eead4"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="16" fill="#0b1322"/>
+        <rect id="ring" x="2.75" y="2.75" width="58.5" height="58.5" rx="15.25" fill="none" stroke="url(#ring)" stroke-width="1.5" opacity="0.95"/>
+        <path id="magnet" d="M20 30v8a12 12 0 0 0 24 0v-8" fill="none" stroke="url(#u)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle id="tip-l" cx="20" cy="23" r="4" fill="#0b1322" stroke="url(#u)" stroke-width="3.5"/>
+        <circle id="tip-r" cx="44" cy="23" r="4" fill="#0b1322" stroke="url(#u)" stroke-width="3.5"/>
+      </svg>
+    </div>
+    <div class="name">Torrentor</div>
+    <div class="tagline">one query · every source · at once</div>
+  </div>
+  <div class="load" aria-hidden="true"><i></i></div>
+</body>
+</html>
