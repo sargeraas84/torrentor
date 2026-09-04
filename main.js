@@ -13,7 +13,7 @@
 // through the typed bridge in preload.js.
 // =====================================================================
 
-const { app, BrowserWindow, clipboard, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, clipboard, ipcMain, shell } = require('electron');
 const path = require('path');
 const network = require('./lib/network');
 const { Storage } = require('./lib/storage');
@@ -42,6 +42,7 @@ const dataDir = () => (SMOKE_MODE && process.env.TORRENTOR_DATA_DIR) || app.getP
 
 let mainWindow = null;
 let splashWindow = null; // animated launcher shown while the UI boots
+let tray = null; // taskbar/menu-bar presence with Show/Quit actions
 let mainReady = false; // main window rendered and safe to show
 let storage = null;
 let currentAbort = null; // AbortController for the in-flight search
@@ -65,6 +66,7 @@ async function bootstrap() {
 
   createSplash();
   createWindow();
+  createTray();
   registerIpc();
   registerEvents();
 
@@ -124,6 +126,43 @@ function closeSplash() {
   setTimeout(() => {
     if (!w.isDestroyed()) w.destroy();
   }, 420);
+}
+
+/**
+ * Taskbar / menu-bar presence so the mark stays visible while the app
+ * runs. Windows uses the multi-size .ico (crisp 16px small / 32px large
+ * at every DPI); macOS uses the black template mask the system tints and
+ * scales (the @2x sibling is picked up automatically for retina bars).
+ * Window-close behavior is unchanged — this is presence, not minimize-
+ * to-tray.
+ */
+function createTray() {
+  if (SMOKE_MODE) return; // keep the test harness's process shape intact
+  try {
+    const icon =
+      process.platform === 'darwin'
+        ? path.join(__dirname, 'resources', 'icons', 'trayTemplate.png')
+        : path.join(__dirname, 'resources', 'icon.ico');
+    tray = new Tray(icon);
+    tray.setToolTip('Torrentor');
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Open Torrentor', click: () => showWindow() },
+        { type: 'separator' },
+        { label: 'Quit', click: () => {
+            quitting = true;
+            if (storage) storage.flush();
+            app.quit();
+          } },
+      ])
+    );
+    // Windows/Linux: single click raises the app (macOS opens the menu).
+    if (process.platform !== 'darwin') tray.on('click', () => showWindow());
+  } catch (err) {
+    // A missing tray must never prevent the app from starting.
+    console.error('[torrentor] tray unavailable:', err && err.message ? err.message : err);
+    tray = null;
+  }
 }
 
 function createWindow() {

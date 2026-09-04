@@ -8,6 +8,10 @@
 // magnet — a U whose two legs point down with bright pole tips. "Torrent
 // + magnetic", readable at 16px.
 //
+// Also emits macOS menu-bar template images (black alpha masks named
+// trayTemplate.png / trayTemplate@2x.png) so the mark renders crisply in
+// the macOS menu bar at every DPI.
+//
 // Runs automatically during `npm run build`; safe to re-run anytime.
 // ---------------------------------------------------------------------
 
@@ -122,11 +126,18 @@ function sdTube(px, py, cx, cy, midR, halfW) {
   return Math.abs(Math.hypot(px - cx, py - cy) - midR) - halfW;
 }
 
-function renderIcon(size, ss) {
+/**
+ * Render the mark at `size`px. When `mono` is set, every shape is painted
+ * opaque black so the result is a pure alpha mask — the macOS menu-bar
+ * template-image format (the system tints it for light/dark menu bars and
+ * scales it crisply at every DPI via the @2x variant).
+ */
+function renderIcon(size, ss, mono) {
   const SS = ss || 4;
   const S = size * SS;
   const acc = new Float32Array(S * S * 4);
   const u = SS;
+  const monoCol = [0, 0, 0];
 
   const cyan = hexToRgb('#22d3ee');
   const teal = hexToRgb('#2dd4bf');
@@ -172,6 +183,7 @@ function renderIcon(size, ss) {
 
       const paint = (cov, rgb) => {
         if (cov <= 0) return;
+        if (mono) rgb = monoCol; // alpha mask only — macOS tints it
         const keep = 1 - cov;
         pr = rgb[0] * cov + pr * keep;
         pg = rgb[1] * cov + pg * keep;
@@ -260,11 +272,17 @@ function main() {
   // 512px macOS app icon (electron-builder converts it to .icns).
   // Supersample 2x to keep the build fast; the flat-shaded mark scales cleanly.
   const png512 = renderIcon(512, 2);
+  // macOS menu-bar template images: 16pt (@1x) + 32px (@2x), black alpha masks.
+  // Electron/NSImage picks up the @2x sibling automatically for retina menu bars.
+  const tpl1x = renderIcon(16, 4, true);
+  const tpl2x = renderIcon(32, 4, true);
   fs.writeFileSync(path.join(ICONS, 'app.png'), png512.png);
   fs.writeFileSync(path.join(ICONS, 'tray.png'), png32.png);
+  fs.writeFileSync(path.join(ICONS, 'trayTemplate.png'), tpl1x.png);
+  fs.writeFileSync(path.join(ICONS, 'trayTemplate@2x.png'), tpl2x.png);
   fs.writeFileSync(path.join(RES, 'torrentor-mark.png'), png256.png);
 
-  console.log('[generate-icon] wrote resources/icon.ico (16/24/32/48/64/128/256) + icons/app.png (512), icons/tray.png, torrentor-mark.png');
+  console.log('[generate-icon] wrote resources/icon.ico (16/24/32/48/64/128/256) + icons/app.png (512), tray.png, trayTemplate.png(+@2x), torrentor-mark.png');
 }
 
 main();
