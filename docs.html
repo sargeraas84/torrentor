@@ -48,7 +48,7 @@
       <div class="wrap">
         <span class="eyebrow rv"><span class="dot"></span>Documentation</span>
         <h1 class="rv" data-d="1">Torrentor <span class="grad">docs</span></h1>
-        <p class="lead rv" data-d="2">Everything you need: install, add sources, wire up your VPN, read the health checks, and understand the architecture.</p>
+        <p class="lead rv" data-d="2">Everything you need: install, add sources, wire up your VPN, read the health checks, see what's new, and understand the architecture.</p>
       </div>
     </header>
 
@@ -61,6 +61,7 @@
             <a href="#vpn-config">VPN &amp; proxy config</a>
             <a href="#engine-health">Engine health</a>
             <a href="#architecture">Architecture</a>
+            <a href="#changelog">Changelog</a>
           </nav>
 
           <div>
@@ -159,23 +160,31 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <p>Verdicts (ok/count/latency/error) persist locally, so dots paint instantly on revisit. Health is <b>informational</b>: a failing source isn't auto-disabled — you can see it's dead before enabling it.</p>
             </div>
 
-            <!-- ================= architecture ================= -->
-            <div class="doc-sec" id="architecture">
-              <h2>Architecture</h2>
-              <p>Three layers, strict boundaries. The renderer is sandboxed (CSP, <code>contextIsolation</code>, no <code>nodeIntegration</code>) and touches the network <b>never</b> — it talks only through a typed, whitelisted bridge.</p>
-              <table>
-                <thead><tr><th>Layer</th><th>Owns</th></tr></thead>
-                <tbody>
-                  <tr><td><code>main.js</code></td><td>Window, IPC surface, orchestration, storage, proxy routing — every outbound request goes through <code>lib/network</code> bound to your VPN route.</td></tr>
-                  <tr><td><code>indexers/</code></td><td>Engine adapters (registry allowlist). Each knows one public interface and normalizes into one result shape.</td></tr>
-                  <tr><td><code>lib/orchestrator.js</code></td><td>Parallel fan-out, per-engine watchdog, infohash dedupe, honesty ordering (real before demo, relevance before size), streaming snapshots.</td></tr>
-                  <tr><td><code>renderer/</code></td><td>UI only: search box, streaming cards, filters, favorites/history, Settings. State flows down, events flow up.</td></tr>
-                </tbody>
-              </table>
-              <p><b>Honesty rules.</b> A query's results must genuinely match it — Archive items are gated on literal title/identifier tokens, not raw download counts, and broad catalog phrases fall back to a title-scoped query so real matches are never buried. Demo fixtures carry fabricated seeders but can never outrank a real result.</p>
-              <p><b>Storage.</b> Favorites, history, prefs and health verdicts are plain JSON in the app-data folder — atomic debounced writes, no cloud.</p>
+            <!-- ================= changelog ================= -->
+            <div class="doc-sec" id="changelog">
+              <h2>Changelog</h2>
+              <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
+              <div class="card">
+                <h3 style="margin-bottom: 4px;">v1.1.0 — “Open culture”</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-04 · <a href="https://github.com/sargeraas84/torrentor/releases/tag/v1.1.0">release ↗</a></p>
+                <ul>
+                  <li><b>Portable Windows build</b> — <code>Torrentor-Setup-1.1.0.exe</code> attached to the release; no install needed.</li>
+                  <li><b>Open-culture browsing</b> — Archive items now carry creator, year and their poster on cards; the idle screen gains an “Explore open culture” tile row; Archive-native mediatype chips (Movies · Audio · Texts · Software) filter the real classification.</li>
+                  <li><b>Engine health self-test</b> — Settings → Search sources probes every real source with a known-good query. A source that returns zero results is reported as <i>failing</i>, never as a silent green chip. This also surfaced and fixed a caching bug that made the Ubuntu probe flaky.</li>
+                  <li><b>This website</b> — landing page + docs, live at <code>sargeraas84.github.io/torrentor</code>.</li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3 style="margin-bottom: 4px;">v1.0.0 — Initial release</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-04 · baseline</p>
+                <ul>
+                  <li>Meta-search across <b>Internet Archive</b>, official <b>Ubuntu / Debian</b> and <b>Arch Linux</b> releases, plus an offline <b>Demo</b> engine so the app works with zero network.</li>
+                  <li>Parallel fan-out with a per-engine watchdog, infohash dedupe, and honesty ordering — real results before demo, relevance before size.</li>
+                  <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
+                </ul>
+              </div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 49 Node checks, 8 Electron IPC checks, and a 25-step real-window playtest. A CI workflow now builds the portable <code>.exe</code> and opens a draft release on every <code>v*</code> tag, so future releases don't need a local build.</div>
             </div>
-          </div>
         </div>
       </div>
     </section>
@@ -206,6 +215,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <li><a href="docs.html#vpn-config">VPN config</a></li>
               <li><a href="docs.html#engine-health">Engine health</a></li>
               <li><a href="docs.html#architecture">Architecture</a></li>
+              <li><a href="docs.html#changelog">Changelog</a></li>
             </ul>
           </div>
           <div>
