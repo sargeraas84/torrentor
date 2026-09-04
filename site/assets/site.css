@@ -51,9 +51,9 @@ body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(52rem 34rem at 82% -8%, rgba(34, 211, 238, 0.10), transparent 62%),
-    radial-gradient(46rem 30rem at -12% 18%, rgba(45, 212, 191, 0.08), transparent 60%),
-    radial-gradient(40rem 36rem at 50% 118%, rgba(34, 211, 238, 0.06), transparent 65%);
+    radial-gradient(52rem 34rem at 82% -8%, rgba(34, 211, 238, 0.085), transparent 62%),
+    radial-gradient(46rem 30rem at -12% 18%, rgba(45, 212, 191, 0.065), transparent 60%),
+    radial-gradient(40rem 36rem at 50% 118%, rgba(34, 211, 238, 0.05), transparent 65%);
 }
 /* Fine grain overlay — fixed, pointer-events-none */
 .grain {
@@ -93,8 +93,8 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
 
 h1, h2, h3 { margin: 0; line-height: 1.08; letter-spacing: -0.03em; font-weight: 750; text-wrap: balance; }
-h1 { font-size: clamp(2.7rem, 7vw, 4.7rem); }
-h2 { font-size: clamp(1.9rem, 4vw, 2.8rem); margin-bottom: 1.1rem; }
+h1 { font-size: clamp(2.8rem, 7vw, 4.9rem); }
+h2 { font-size: clamp(2rem, 4vw, 2.9rem); margin-bottom: 1.1rem; }
 h3 { font-size: 1.22rem; letter-spacing: -0.02em; }
 p.lead { color: var(--mut); font-size: clamp(1.02rem, 1.6vw, 1.2rem); max-width: 56ch; }
 .grad {
@@ -112,7 +112,7 @@ pre code { background: none; border: none; padding: 0; color: #c3d4e8; }
 
 /* ------------------------------------------------ double-bezel cards */
 .bezel {
-  padding: 8px;
+  padding: 10px;
   border-radius: var(--r-xl);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012));
   border: 1px solid var(--line);
@@ -123,7 +123,7 @@ pre code { background: none; border: none; padding: 0; color: #c3d4e8; }
   background: linear-gradient(180deg, #0d1730, #0a1222);
   border: 1px solid rgba(28, 42, 66, 0.7);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 24px 60px -32px rgba(0, 0, 0, 0.8);
-  padding: 30px;
+  padding: 32px;
 }
 
 /* ------------------------------------------------ buttons */
@@ -136,9 +136,9 @@ pre code { background: none; border: none; padding: 0; color: #c3d4e8; }
   cursor: pointer; text-decoration: none !important;
   background: linear-gradient(92deg, #22d3ee, #2dd4bf);
   transition: transform 0.45s var(--spring), box-shadow 0.45s var(--spring), filter 0.45s var(--spring);
-  box-shadow: 0 14px 34px -14px rgba(34, 211, 238, 0.55);
+  box-shadow: 0 14px 34px -16px rgba(34, 211, 238, 0.45);
 }
-.btn:hover { transform: translateY(-1px); box-shadow: 0 20px 44px -14px rgba(34, 211, 238, 0.7); filter: brightness(1.05); }
+.btn:hover { transform: translateY(-1px); box-shadow: 0 20px 44px -16px rgba(34, 211, 238, 0.55); filter: brightness(1.05); }
 .btn:active { transform: scale(0.975); }
 .btn .ic {
   width: 34px; height: 34px; border-radius: 50%;
@@ -278,7 +278,7 @@ pre code { background: none; border: none; padding: 0; color: #c3d4e8; }
 .stream .done { color: #34d399; }
 
 /* ------------------------------------------------ bento features */
-.bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; margin-top: 56px; }
+.bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: 20px; margin-top: 56px; }
 .bento .cell { grid-column: span 4; }
 .bento .cell.wide { grid-column: span 8; }
 .bento .cell .core { padding: 28px; display: flex; flex-direction: column; gap: 12px; }
@@ -291,7 +291,13 @@ pre code { background: none; border: none; padding: 0; color: #c3d4e8; }
 .bento .ttl { font-size: 16.5px; font-weight: 700; letter-spacing: -0.01em; }
 
 /* ------------------------------------------------ sources */
-.src-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 48px; }
+.src-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 48px; }
+
+/* ------------------------------------------------ the idea (friendly explainer) */
+.idea-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(2.5rem, 5vw, 4.5rem); align-items: start; margin-top: 38px; }
+.idea-grid .lead { color: #aab9cf; }
+.idea-grid .lead b { color: var(--txt); font-weight: 650; }
+.idea-grid .steps { margin-top: 18px; }
 .src-grid .cell .core { padding: 26px; display: flex; gap: 16px; align-items: flex-start; }
 .src-idx {
   width: 42px; height: 42px; flex-shrink: 0; border-radius: 13px;
@@ -378,7 +384,7 @@ footer { border-top: 1px solid rgba(28, 42, 66, 0.55); padding: 44px 0 60px; pos
 /* ------------------------------------------------ responsive */
 @media (max-width: 980px) {
   .bento .cell, .bento .cell.wide { grid-column: span 12; }
-  .hero-grid, .split { grid-template-columns: 1fr; }
+  .hero-grid, .split, .idea-grid { grid-template-columns: 1fr; }
   .hero { min-height: auto; padding-top: 7.5rem; }
   .fc3 { left: 8px; bottom: -16px; }
   .fc1 { top: -16px; }

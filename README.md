@@ -111,6 +111,14 @@ npm run dist       # electron-builder → portable .exe in dist-exe/
 npm run dist:installer  # NSIS installer
 ```
 
+**Automated releases:** push a `v*` tag and CI (`.github/workflows/release.yml`)
+builds the portable `.exe` on a Windows runner and opens a **draft release** with the
+artifact attached — publish it from the Releases page when ready:
+
+```bash
+git tag v1.2.0 && git push origin v1.2.0
+```
+
 ## Project structure
 
 ```

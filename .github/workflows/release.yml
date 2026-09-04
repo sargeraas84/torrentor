@@ -1,0 +1,36 @@
+# Release CI — builds the portable Windows .exe on every v* tag push and
+# opens a draft GitHub release with the artifact attached. Publish the
+# draft from the Releases page when you're ready.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable .exe
+        run: npm run dist
+
+      - name: Open draft release with artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist-exe/*.exe --draft --title "${{ github.ref_name }}" --generate-notes
