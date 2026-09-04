@@ -60,7 +60,7 @@
             <a href="#adding-sources">Adding sources</a>
             <a href="#vpn-config">VPN &amp; proxy config</a>
             <a href="#engine-health">Engine health</a>
-            <a href="#architecture">Architecture</a>
+            <a href="#releasing">Releasing</a>
             <a href="#changelog">Changelog</a>
           </nav>
 
@@ -86,7 +86,7 @@
                 <table>
                   <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
                   <tbody>
-                    <tr><td><code>npm test</code></td><td>49 pure-Node checks — engines, honesty gate, merge, paging, health runner. No window, no network.</td></tr>
+                    <tr><td><code>npm test</code></td><td>52 pure-Node checks — engines, honesty gate, merge, paging, health runner. No window, no network.</td></tr>
                     <tr><td><code>npm run test:electron</code></td><td>8 IPC checks through the real main process — search, favorites, health round-trip.</td></tr>
                     <tr><td><code>npm run test:ui</code></td><td>25-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP.</td></tr>
                   </tbody>
@@ -158,6 +158,22 @@ module.exports = { engine: ENGINE, search };</code></pre>
                 </tbody>
               </table>
               <p>Verdicts (ok/count/latency/error) persist locally, so dots paint instantly on revisit. Health is <b>informational</b>: a failing source isn't auto-disabled — you can see it's dead before enabling it.</p>
+            </div>
+
+            <!-- ================= releasing ================= -->
+            <div class="doc-sec" id="releasing">
+              <h2>Releasing</h2>
+              <p>The release path is scripted end-to-end; these steps keep it repeatable and boring.</p>
+              <div class="card">
+                <ol>
+                  <li><b>Green <code>master</code> first.</b> Push the changes and wait for the <b>ci</b> workflow (actionlint over every workflow + the full pure-Node suite) to pass. A red <code>ci</code> run means: don't tag — workflow mistakes are exactly what would break the release build.</li>
+                  <li><b>Bump + changelog.</b> Raise <code>version</code> in <code>package.json</code>, add the <a href="#changelog">changelog</a> entry, commit, push, and again wait for <code>ci</code> to go green.</li>
+                  <li><b>Tag and push.</b> <code>git tag vX.Y.Z && git push origin vX.Y.Z</code> — the <b>release</b> workflow builds Windows (installer + portable <code>.exe</code>) and macOS (universal <code>.dmg</code> + <code>.zip</code>), then opens a <b>draft release</b> with all four archives attached.</li>
+                  <li><b>Check the draft.</b> All four artifacts present, none of the unpacked app dirs.</li>
+                  <li><b>Smoke it.</b> Download an installer and confirm fresh-install behavior — opt-in sources (The Pirate Bay) stay off until the user enables them.</li>
+                  <li><b>Publish</b> the draft from the Releases page when ready. That's the whole process — the download badge updates itself.</li>
+                </ol>
+              </div>
             </div>
 
             <!-- ================= changelog ================= -->

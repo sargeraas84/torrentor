@@ -119,11 +119,14 @@ Silicon) `.dmg` and `.zip`. The macOS build is **unsigned** — the first launch
 requires right-click → **Open** (Gatekeeper), which is normal for open-source
 apps without an Apple Developer account.
 
-**Automated releases:** push a `v*` tag and CI (`.github/workflows/release.yml`)
-builds both platforms — Windows installer + portable `.exe` on a Windows runner,
-macOS universal `.dmg` + `.zip` on a macOS runner — and opens a **draft release**
-with everything attached. Publish it from the Releases page when ready (a
-`workflow_dispatch` run builds the same artifacts without a tag):
+**Automated releases:** first make sure the `ci` workflow (actionlint over
+every workflow + the full pure-Node suite) is green on `master` — that check
+exists precisely so a workflow mistake can't break a release. Then push a `v*`
+tag and CI (`.github/workflows/release.yml`) builds both platforms — Windows
+installer + portable `.exe` on a Windows runner, macOS universal `.dmg` +
+`.zip` on a macOS runner — and opens a **draft release** with everything
+attached. Verify the four artifacts, then Publish it from the Releases page
+when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
 git tag v1.3.0 && git push origin v1.3.0
