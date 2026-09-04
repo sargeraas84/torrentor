@@ -1,6 +1,10 @@
 # Torrentor
 
-> 🌐 **Website:** <https://sargeraas84.github.io/torrentor/> — landing page and full docs.
+[![Release](https://img.shields.io/github/v/release/sargeraas84/torrentor?label=download&color=22d3ee)](https://github.com/sargeraas84/torrentor/releases/latest)
+[![Website](https://img.shields.io/badge/website-sargeraas84.github.io%2Ftorrentor-2dd4bf)](https://sargeraas84.github.io/torrentor/)
+
+> 🌐 **Website:** <https://sargeraas84.github.io/torrentor/> — landing page and full docs.  
+> ⬇️ **Download:** portable Windows build on the [latest release](https://github.com/sargeraas84/torrentor/releases/latest) — no install needed.
 
 A privacy-first **torrent meta-search engine for Windows**, built with Electron.
 
