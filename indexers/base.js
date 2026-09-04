@@ -53,6 +53,12 @@ function normalizeResult(partial, engine) {
     demo: !!(engine.demo || p.demo),
     relevance: p.relevance ?? 0,
     hints: Array.isArray(p.hints) ? p.hints : [],
+    // Rich catalog metadata (Archive.org etc.): nullable, first-seen-wins on
+    // merge. Kept small — description is display-clipped here.
+    creator: p.creator ? String(p.creator).slice(0, 120) : null,
+    year: p.year != null && p.year !== '' ? String(p.year).slice(0, 20) : null,
+    description: p.description ? String(p.description).replace(/\s+/g, ' ').trim().slice(0, 220) : null,
+    mediatype: p.mediatype ? String(p.mediatype).toLowerCase() : null,
   };
 }
 

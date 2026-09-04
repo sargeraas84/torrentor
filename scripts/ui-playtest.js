@@ -87,6 +87,35 @@ async function main() {
   else ok('careless 1-char query → toast, no search started');
   await wait(2400); // toast clears
 
+  // ===== 1b. Explore open culture tiles (idle) =====
+  await waitFor('explore tiles loaded on idle', `document.querySelectorAll('[data-testid="explore-tile"]').length >= 3`, 20000);
+  ok('Explore open culture tiles render on idle');
+  const tileQ = await js(`document.querySelector('[data-testid="explore-tile"]').getAttribute('data-q')`);
+  await click('[data-testid="explore-tile"]');
+  await waitFor('tile search starts running', `!!document.querySelector('[data-testid="run-status"]')`, 8000);
+  await waitFor('tile search completes', `(() => { const s = document.querySelector('[data-testid="run-summary"]'); return s && /\\d+ unique results? from/.test(s.textContent); })()`, 25000);
+  const tileSum = await textOf('[data-testid="run-summary"]');
+  ok(`Explore tile '${tileQ}' ran a real search`, tileSum);
+  const withCreatorYear = await js(`[...document.querySelectorAll('[data-testid="result-card"]')].some((c) => !!c.querySelector('[data-testid="card-meta"]') && /(1[89]\\d\\d|20[0-3]\\d)/.test(c.querySelector('[data-testid="card-meta"]').textContent))`);
+  if (!withCreatorYear) defect('Archive card shows creator — year meta', 'no card matched');
+  else ok('Archive cards show creator — year meta');
+  const chipRow = await js(`!!document.querySelector('[data-testid="arch-filter-all"]')`);
+  const chipBefore = await js(`document.querySelectorAll('[data-testid="result-card"]').length`);
+  if (!chipRow || chipBefore === 0) defect('Archive mediatype chips appear', 'chip row missing');
+  else {
+    const mtSel = await js(`(() => { const b = [...document.querySelectorAll('[data-testid^="arch-filter-"]')].find((x) => x.getAttribute('data-testid') !== 'arch-filter-all'); return b ? b.getAttribute('data-testid') : null; })()`);
+    await click(`[data-testid="${mtSel}"]`);
+    await wait(300);
+    const chipAfter = await js(`document.querySelectorAll('[data-testid="result-card"]').length`);
+    if (!(chipAfter > 0 && chipAfter <= chipBefore)) defect('mediatype chip filters list', `${chipBefore} -> ${chipAfter}`);
+    else ok(`Archive mediatype chip filters the list (${chipBefore} -> ${chipAfter})`);
+    await click('[data-testid="arch-filter-all"]');
+    await wait(250);
+    const restored = await js(`document.querySelectorAll('[data-testid="result-card"]').length`);
+    if (restored !== chipBefore) defect('Archive All chip restores list', `${chipBefore} -> ${restored}`);
+    else ok('Archive All chip restores full list');
+  }
+
   // ============== 2. real live search: 'ubuntu', watch stream =============
   await setText('[data-testid="search-input"]', 'ubuntu');
   await wait(80);

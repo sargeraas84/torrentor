@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('torrentor', {
   runHealth: bridge('health:run'),
   onHealthProgress: (cb) => subscribe('health:progress', cb),
 
+  // ----- idle explore tiles
+  exploreTiles: bridge('explore:tiles'),
+
   // ----- network / VPN
   checkIp: bridge('net:checkIp'),
   validateProxy: bridge('net:validateProxy', (cfg) => ({ cfg })),

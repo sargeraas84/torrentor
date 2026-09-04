@@ -185,6 +185,81 @@ async function main() {
     assert.strictEqual(archive.normalizeItem({ identifier: 'i', title: '  ' }, 'q'), null);
     assert.strictEqual(archive.normalizeItem({ identifier: 'mame-roms', title: 'MAME ROMs', downloads: 5, item_size: 100 }, 'ubuntu'), null);
   });
+  ok('archive normalization captures creator/year/description/mediatype', () => {
+    const item = archive.normalizeItem(
+      {
+        identifier: 'ubuntu-docs',
+        title: 'Ubuntu Docs Collection',
+        mediatype: 'texts',
+        creator: 'Canonical',
+        year: '2024',
+        description: `  ${'Long sentence about the collection. '.repeat(40)}  `,
+        downloads: 10,
+        item_size: 100,
+      },
+      'ubuntu'
+    );
+    assert.strictEqual(item.creator, 'Canonical');
+    assert.strictEqual(item.year, '2024');
+    assert.ok(item.description.length <= 220 && !item.description.includes('  '), 'clipped + whitespace-collapsed');
+    assert.strictEqual(item.mediatype, 'texts');
+    // Full engine path: base normalizeResult whitelist keeps the fields.
+    const base = require('../indexers/base');
+    const out = base.normalizeResult(item, { id: 'archive-org', name: 'IA', kind: 'official' });
+    assert.strictEqual(out.creator, 'Canonical');
+    assert.strictEqual(out.mediatype, 'texts');
+  });
+
+  ok('archive sparse-page fallback: title-scoped query composes safely', () => {
+    assert.strictEqual(archive.titleScopedQuery('public domain films'), '(public domain films) AND title:(public OR domain OR films)');
+    assert.strictEqual(archive.titleScopedQuery('ubuntu'), '(ubuntu) AND title:(ubuntu)');
+    assert.strictEqual(archive.titleScopedQuery('  !?  '), '!?', 'no significant tokens → trimmed raw query unchanged');
+    assert.ok(!archive.titleScopedQuery('moby dick "quoted"').includes('"'), 'query rebuilt from safe tokens only');
+  });
+  const doc = (identifier, title) => ({
+    identifier,
+    title,
+    mediatype: 'audio',
+    item_size: '1000000',
+    downloads: '100',
+  });
+  ok('archive sparse-page fallback fetches title-scoped page when honest page is thin', async () => {
+    let calls = 0;
+    const ctx = {
+      signal: null,
+      network: {
+        getJson: async (url) => {
+          calls++;
+          const scoped = url.includes('AND%20title%3A');
+          const docs = scoped
+            ? Array.from({ length: 9 }, (_, i) => doc(`film-${i}`, `Public Domain Film ${i}`))
+            : [doc('a1', 'Public Domain Archive Box 1'), doc('a2', 'Public Domain Archive Box 2')];
+          return { response: { docs, numFound: 900 } };
+        },
+      },
+    };
+    const out = await archive.searchPage('public domain films', ctx);
+    assert.strictEqual(calls, 2, 'natural page thin → one title-scoped refetch');
+    assert.strictEqual(out.results.length, 9, 'richer scoped page wins');
+    assert.ok(out.results.every((r) => r.title.includes('Film')), 'scoped results all honest title matches');
+  });
+  ok('archive does NOT refetch when the natural page already gates rich', async () => {
+    let calls = 0;
+    const ctx = {
+      signal: null,
+      network: {
+        getJson: async () => {
+          calls++;
+          return {
+            response: { docs: Array.from({ length: 12 }, (_, i) => doc(`u${i}`, `Ubuntu Docs ${i}`)), numFound: 400 },
+          };
+        },
+      },
+    };
+    const out = await archive.searchPage('ubuntu docs', ctx);
+    assert.strictEqual(calls, 1, 'no extra request when page 1 is honest-rich');
+    assert.strictEqual(out.results.length, 12);
+  });
 
   // -------------------- distro pure helpers ---------------------------
   const distro = require('../indexers/distro-releases');
@@ -373,6 +448,23 @@ async function main() {
     assert.strictEqual(merged.demo, false);
     assert.strictEqual(merged.sourceId, 'srcA', 'representative source identity kept');
     assert.strictEqual(keyOf(merged), `btih:${ih}`, 'merged entry keyOf is stable');
+  });
+  ok('merge carries rich catalog metadata first-seen-wins', () => {
+    const ih = 'ef'.repeat(20);
+    const map = new Map();
+    mergeInto(map, {
+      title: 'Film', sourceId: 'archive-org', itemId: 'film-x', infohash: ih,
+      creator: 'Orson Welles', year: '1941', mediatype: 'movies', description: 'first',
+    });
+    mergeInto(map, {
+      title: 'Film', sourceId: 'other', itemId: 'y', infohash: ih,
+      creator: 'Wrong Creator', mediatype: 'texts', description: 'dup',
+    });
+    const [merged] = [...map.values()];
+    assert.strictEqual(merged.creator, 'Orson Welles', 'creator first-seen-wins');
+    assert.strictEqual(merged.year, '1941');
+    assert.strictEqual(merged.mediatype, 'movies', 'mediatype first-seen-wins');
+    assert.strictEqual(merged.description, 'first');
   });
 
   ok('health storage round-trips', () => {

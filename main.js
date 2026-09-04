@@ -25,6 +25,17 @@ const { validateProxyConfig } = network;
 
 // ------------------------------------------------------------ constants
 
+// Curated entry points into public-domain & CC media (idle "Explore" tiles).
+// Each fires the normal archive search — the tiles are pure navigation.
+const EXPLORE_TILES = [
+  { q: 'public domain films', label: 'Public domain films' },
+  { q: 'old time radio', label: 'Old time radio' },
+  { q: 'librivox audiobooks', label: 'LibriVox audiobooks' },
+  { q: 'silent cinema', label: 'Silent cinema' },
+  { q: '78rpm records', label: '78rpm records' },
+  { q: 'nasa imagery', label: 'NASA imagery' },
+];
+
 const APP_ID = 'com.torrentor.app';
 const SMOKE_MODE = !!process.env.TORRENTOR_SMOKE;
 const dataDir = () => (SMOKE_MODE && process.env.TORRENTOR_DATA_DIR) || app.getPath('userData');
@@ -270,6 +281,32 @@ function registerIpc() {
     });
     storage.setHealth(list);
     return list;
+  });
+
+  // Idle-screen "Explore open culture" tiles: for each curated query, pull
+  // the first Archive item's poster (cached). Failures degrade to a
+  // label-only tile in the renderer — this endpoint never throws.
+  const exploreCache = new Map(); // q -> { at, thumb }
+  const EXPLORE_TTL_MS = 30 * 60 * 1000;
+  handle('explore:tiles', async () => {
+    const engine = registry.get('archive-org');
+    if (!engine || typeof engine.search !== 'function') return [];
+    const tiles = await Promise.all(
+      EXPLORE_TILES.map(async (t) => {
+        const hit = exploreCache.get(t.q);
+        if (hit && Date.now() - hit.at < EXPLORE_TTL_MS) return { ...t, thumb: hit.thumb };
+        let thumb = null;
+        try {
+          const res = await engine.search(t.q, { signal: null, network, timeoutMs: 9000 });
+          thumb = (res && res[0] && res[0].thumbnail) || null;
+        } catch {
+          /* non-fatal — label-only tile */
+        }
+        exploreCache.set(t.q, { at: Date.now(), thumb });
+        return { q: t.q, label: t.label, thumb };
+      })
+    );
+    return tiles;
   });
 
   handle('app:copy', ({ text }) => {

@@ -130,8 +130,13 @@ const iconBtn = {
   cursor: 'pointer',
 };
 
+// Archive mediatype is authoritative for the card's category look when
+// present (the item's own classification beats a keyword guess).
+const MEDIATYPE_CAT = { movies: 'video', audio: 'audio', etree: 'audio', texts: 'documents', software: 'apps', image: 'other', data: 'other' };
+
 module.exports = function ResultCard({ result, isFav, onToast, onFavToggle }) {
-  const meta = CATEGORY_META[result.category] || CATEGORY_META.other;
+  const effCategory = MEDIATYPE_CAT[result.mediatype] || result.category || 'other';
+  const meta = CATEGORY_META[effCategory] || CATEGORY_META.other;
   const hasMagnet = !!result.magnet;
   const primary = hasMagnet ? 'magnet' : result.torrentUrl ? 'torrent' : null;
   // Archive.org cards carry a poster thumbnail; render it (falling back
@@ -204,7 +209,7 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle }) {
           border: `1px solid ${meta.color}33`,
         }}
       >
-        <CatGlyph category={result.category} size={19} color={meta.color} />
+        <CatGlyph category={effCategory} size={19} color={meta.color} />
       </div>
       )}
 
@@ -247,6 +252,13 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle }) {
             </span>
           )}
         </div>
+
+        {/* creator — year (Archive.org items) */}
+        {(result.creator || result.year) && (
+          <div data-testid="card-meta" style={{ color: '#6f8199', fontSize: 12, marginTop: 2 }}>
+            {[result.creator, result.year].filter(Boolean).join(' — ')}
+          </div>
+        )}
 
         {/* meta row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 5, color: '#8494ab', fontSize: 12 }}>

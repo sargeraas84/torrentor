@@ -34,17 +34,30 @@ const ROWS = 50;
 // No explicit sort: advancedsearch's native relevance ranking is the
 // default, which is the right ordering for a search engine. Raw download
 // counts stay on the card as metadata only.
-const FIELDS = ['identifier', 'title', 'mediatype', 'item_size', 'downloads', 'date', 'publicdate', 'description'].map((f) => `fl[]=${f}`).join('&');
+const FIELDS = ['identifier', 'title', 'creator', 'year', 'mediatype', 'item_size', 'downloads', 'date', 'publicdate', 'description'].map((f) => `fl[]=${f}`).join('&');
 
 const MEDIATYPE_HINTS = { movies: ['movies'], audio: ['audio'], etree: ['audio', 'music'], texts: ['texts'], software: ['software'], image: ['image'], data: ['data'] };
 
-function buildSearchUrl(query, page = 1) {
+function buildSearchUrl(query, page = 1, scope) {
   const q = String(query || '').trim();
-  const qp = encodeURIComponent(q);
+  const qp = encodeURIComponent(scope === 'title' ? titleScopedQuery(q) : q);
   const pg = Math.max(1, Math.floor(Number(page) || 1));
   // (A numeric fq range like "downloads:[1 TO *]" is rejected by the API —
   // we filter empty records client-side in normalizeItem instead.)
   return `${SEARCH_URL}?q=${qp}&${FIELDS}&rows=${ROWS}&page=${pg}&output=json`;
+}
+
+/**
+ * Title-scoped variant of a query: constrains Archive's fuzzy relevance
+ * search to items whose TITLE contains at least one significant query
+ * token, so literal matches cluster on page 1 instead of being buried
+ * below metadata-mention chaff. Only tokens are used (alnum, >= 2 chars)
+ * so the Lucene query can't be broken by odd user punctuation.
+ */
+function titleScopedQuery(query) {
+  const tokens = significantTokens(query);
+  if (!tokens.length) return String(query || '').trim();
+  return `(${tokens.join(' ')}) AND title:(${tokens.join(' OR ')})`;
 }
 
 /** Significant (>=2 char) alphanumeric query tokens. */
@@ -73,6 +86,7 @@ function matchesQuery(doc, query) {
 function normalizeItem(doc, query) {
   const id = String(doc.identifier || '').trim();
   const title = String(doc.title || doc.identifier || '').trim();
+  const first = (v) => (Array.isArray(v) ? v[0] : v);
   if (!id || !title) return null;
   // Gate: only genuine title/identifier matches pass through.
   if (!matchesQuery(doc, query)) return null;
@@ -97,6 +111,10 @@ function normalizeItem(doc, query) {
     title: cleanTitle,
     category: undefined, // derived from hints by normalizeResult
     hints,
+    creator: first(doc.creator) ? String(first(doc.creator)).slice(0, 120) : null,
+    year: first(doc.year) != null && first(doc.year) !== '' ? String(first(doc.year)).slice(0, 20) : null,
+    description: first(doc.description) ? String(first(doc.description)).replace(/\s+/g, ' ').trim().slice(0, 220) : null,
+    mediatype,
     sizeBytes,
     seeders: null,
     leechers: null,
@@ -114,11 +132,9 @@ function normalizeItem(doc, query) {
  * Search one page of the Archive for the query. Returns
  * { results, total, page, hasMore } so callers can page deeper.
  */
-async function searchPage(query, ctx = {}) {
-  const q = String(query || '').trim();
-  if (q.length < 2) return { results: [], total: 0, page: 1, hasMore: false };
-  const page = Math.max(1, Math.floor(Number(ctx.page) || 1));
-  const data = await ctx.network.getJson(buildSearchUrl(q, page), {
+/** Fetch + honest-gate one page of results for a (possibly scoped) query. */
+async function fetchPage(qstr, q, page, ctx) {
+  const data = await ctx.network.getJson(buildSearchUrl(qstr, page, qstr !== q ? 'title' : undefined), {
     timeoutMs: ctx.timeoutMs,
     maxBytes: 4 * 1024 * 1024,
     signal: ctx.signal,
@@ -135,9 +151,34 @@ async function searchPage(query, ctx = {}) {
   return { results, total, page, hasMore };
 }
 
+/**
+ * Search one page of the Archive for the query. Returns
+ * { results, total, page, hasMore } so callers can page deeper.
+ */
+async function searchPage(query, ctx = {}) {
+  const q = String(query || '').trim();
+  if (q.length < 2) return { results: [], total: 0, page: 1, hasMore: false };
+  const page = Math.max(1, Math.floor(Number(ctx.page) || 1));
+  let out = await fetchPage(q, q, page, ctx);
+  // Broad catalog phrases ('public domain films') bury literal title
+  // matches below fuzzy relevance, so page 1 can gate to ~0 honest hits
+  // even when the catalog is full of them. When the honest page is thin,
+  // refetch once with the title-scoped query (cheap, only on page 1) and
+  // keep whichever list is richer — both are honest-gated the same way.
+  if (page === 1 && out.results.length < 6) {
+    try {
+      const alt = await fetchPage(titleScopedQuery(q), q, 1, ctx);
+      if (alt.results.length > out.results.length) out = alt;
+    } catch {
+      /* fallback is best-effort — keep the natural page */
+    }
+  }
+  return out;
+}
+
 /** Engine-contract wrapper: returns just the normalized result list. */
 async function search(query, ctx = {}) {
   return (await searchPage(query, ctx)).results;
 }
 
-module.exports = { engine: ENGINE, search, searchPage, buildSearchUrl, normalizeItem, matchesQuery, significantTokens, ROWS };
+module.exports = { engine: ENGINE, search, searchPage, buildSearchUrl, titleScopedQuery, normalizeItem, matchesQuery, significantTokens, ROWS };

@@ -11,6 +11,9 @@ const { sortResults } = require('../lib/orchestrator');
 
 const api = window.torrentor;
 const SUGGESTIONS = ['ubuntu 24.04', 'blender open movie', 'moby dick audiobook', 'apollo 11 4k', 'libreoffice', 'supertuxkart'];
+// Archive.org's own mediatype classification, used for the filter chips and
+// authoritative category look on Archive-backed cards.
+const ARCHIVE_MEDIATYPE_LABELS = { movies: 'Movies', audio: 'Audio', etree: 'Live music', texts: 'Texts', software: 'Software', image: 'Images', data: 'Data' };
 
 function App() {
   const [version, setVersion] = useState('1.0.0');
@@ -29,6 +32,7 @@ function App() {
 
   const [view, setView] = useState('search'); // search | favorites | history
   const [catFilter, setCatFilter] = useState('all');
+  const [archiveFilter, setArchiveFilter] = useState('all'); // 'all' | archive mediatype
   const [sortMode, setSortMode] = useState('seeders');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maxed, setMaxed] = useState(false);
@@ -38,6 +42,8 @@ function App() {
   // a props consumer (same pattern as engines/favorites).
   const [health, setHealth] = useState([]);
   const [healthRunning, setHealthRunning] = useState(false);
+  // Idle-screen "Explore open culture" tiles (label + Archive poster).
+  const [exploreTiles, setExploreTiles] = useState([]);
   // Archive "load more" paging: page cursor + whether another page exists.
   const [archivePage, setArchivePage] = useState(1);
   const [archiveHasMore, setArchiveHasMore] = useState(false);
@@ -89,6 +95,12 @@ function App() {
     });
     const unsubHealth = api.onHealthProgress((list) => setHealth(list || []));
     const unsubMax = api.onMaximized(setMaxed);
+    api
+      .exploreTiles()
+      .then((tiles) => setExploreTiles(Array.isArray(tiles) ? tiles : []))
+      .catch(() => {
+        /* non-fatal — idle shows suggestions only */
+      });
     return () => {
       unsubProgress();
       unsubHealth();
@@ -112,6 +124,7 @@ function App() {
       setRunError(null);
       setPhase('running');
       setResults([]);
+      setArchiveFilter('all');
       setArchiveHasMore(false);
       setPerEngine(Object.fromEntries(engines.filter((e) => ids.includes(e.id)).map((e) => [e.id, { status: 'running', count: 0 }])));
       try {
@@ -265,12 +278,19 @@ function App() {
   // non-default sort modes the user can pick.
   let shown = [];
   if (view === 'search') {
-    const filtered = catFilter === 'all' ? results : results.filter((r) => r.category === catFilter);
+    const byCat = catFilter === 'all' ? results : results.filter((r) => r.category === catFilter);
+    // Archive mediatype filter: applies to Archive-backed cards only. While
+    // active, cards from other engines are hidden (they have no authoritative
+    // mediatype); 'All' restores everything.
+    const filtered = archiveFilter === 'all' ? byCat : byCat.filter((r) => r.mediatype === archiveFilter);
     shown = sortMode === 'seeders' ? filtered : sortResults(filtered, sortMode);
   }
 
   const catCounts = {};
   for (const r of results) catCounts[r.category] = (catCounts[r.category] || 0) + 1;
+  const archiveTypes = [...new Set(results.map((r) => r.mediatype).filter(Boolean))];
+  const archiveCounts = {};
+  for (const r of results) if (r.mediatype) archiveCounts[r.mediatype] = (archiveCounts[r.mediatype] || 0) + 1;
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -413,12 +433,41 @@ function App() {
               </select>
             </div>
           )}
+
+          {/* Archive mediatype filter row — only when Archive cards exist */}
+          {view === 'search' && results.length > 0 && archiveTypes.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 7, flexWrap: 'wrap' }} className="fade-in">
+              <span style={{ color: '#5b6b84', fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase', fontWeight: 600 }}>Archive</span>
+              <button
+                type="button"
+                data-testid="arch-filter-all"
+                className="app-nodrag"
+                style={{ ...filterChipStyle, fontWeight: archiveFilter === 'all' ? 650 : 500, color: archiveFilter === 'all' ? '#7ce7f7' : '#8494ab', borderColor: archiveFilter === 'all' ? '#22d3ee55' : '#22314b', background: archiveFilter === 'all' ? 'rgba(34,211,238,0.12)' : 'transparent' }}
+                onClick={() => setArchiveFilter('all')}
+              >
+                All
+              </button>
+              {archiveTypes.map((mt) => (
+                <button
+                  key={mt}
+                  type="button"
+                  data-testid={`arch-filter-${mt}`}
+                  className="app-nodrag"
+                  style={{ ...filterChipStyle, fontWeight: archiveFilter === mt ? 650 : 500, color: archiveFilter === mt ? '#7ce7f7' : '#8494ab', borderColor: archiveFilter === mt ? '#22d3ee55' : '#22314b', background: archiveFilter === mt ? 'rgba(34,211,238,0.12)' : 'transparent' }}
+                  onClick={() => setArchiveFilter(archiveFilter === mt ? 'all' : mt)}
+                >
+                  {ARCHIVE_MEDIATYPE_LABELS[mt] || mt}
+                  <span style={{ color: archiveFilter === mt ? '#7ce7f7' : '#5b6b84', fontSize: 11 }}>{archiveCounts[mt] || 0}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ============================ BODY ============================ */}
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '2px 22px 28px' }}>
           {view === 'search' && phase === 'idle' && (
-            <IdleState onSuggestion={(s) => runSearch(s)} engines={engines} />
+            <IdleState onSuggestion={(s) => runSearch(s)} engines={engines} tiles={exploreTiles} />
           )}
 
           {view === 'search' && runError && (
@@ -523,23 +572,86 @@ function App() {
 
 // ----------------------------- pieces ----------------------------------
 
-function IdleState({ onSuggestion, engines }) {
+const TILE_GRADIENTS = ['linear-gradient(135deg,#0e7490,#155e75)', 'linear-gradient(135deg,#7c3aed,#4c1d95)', 'linear-gradient(135deg,#b45309,#78350f)', 'linear-gradient(135deg,#0f766e,#134e4a)', 'linear-gradient(135deg,#be185d,#831843)', 'linear-gradient(135deg,#1d4ed8,#1e3a8a)'];
+
+function IdleState({ onSuggestion, engines, tiles }) {
   const enabled = engines.filter((e) => e.enabled);
   return (
-    <div data-testid="idle-state" style={{ textAlign: 'center', padding: '46px 10px 20px' }} className="fade-in">
+    <div data-testid="idle-state" style={{ textAlign: 'center', padding: '40px 10px 16px' }} className="fade-in">
       <div style={{ fontSize: 21, fontWeight: 700, color: '#e6edf7' }}>
         One query, every source, <span style={{ background: 'linear-gradient(90deg,#22d3ee,#2dd4bf)', WebkitBackgroundClip: 'text', color: 'transparent' }}>at once</span>
       </div>
-      <div style={{ color: '#8494ab', fontSize: 13, marginTop: 8, lineHeight: 1.6, maxWidth: 560, margin: '8px auto 0' }}>
-        Torrentor fans your query out to {enabled.length} enabled source{enabled.length === 1 ? '' : 's'} in parallel, then merges and dedupes the
-        results by infohash into a single list. Results stream in as each source answers.
+      <div style={{ color: '#8494ab', fontSize: 13, marginTop: 8, lineHeight: 1.6, maxWidth: 600, margin: '8px auto 0' }}>
+        Public-domain films, old radio, audiobooks, open software and more — Torrentor fans your query out to {enabled.length} legal source{enabled.length === 1 ? '' : 's'} in
+        parallel, merges the results by infohash, and streams them in as each source answers.
       </div>
-      <div style={{ marginTop: 24 }}>
+      <div style={{ marginTop: 22, display: 'flex', justifyContent: 'center' }}>
         <SuggestionChips suggestions={SUGGESTIONS} onPick={onSuggestion} />
       </div>
-      <div style={{ color: '#4d5d75', fontSize: 11.5, marginTop: 34, maxWidth: 620, margin: '34px auto 0', lineHeight: 1.7 }}>
-        Legal-first sources are on by default (Archive.org items, official Linux ISOs, and a clearly-labeled demo corpus). Torrentor is search
-        software — it stores no files. Only download what you have the right to share.
+      {tiles && tiles.length > 0 && (
+        <div style={{ marginTop: 30 }}>
+          <div style={{ color: '#5b6b84', fontSize: 10.5, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }}>
+            Explore open culture
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', maxWidth: 760, margin: '0 auto' }}>
+            {tiles.map((t, i) => (
+              <button
+                key={t.q}
+                type="button"
+                data-testid="explore-tile"
+                data-q={t.q}
+                className="app-nodrag"
+                onClick={() => onSuggestion(t.q)}
+                style={{
+                  position: 'relative',
+                  width: 172,
+                  height: 92,
+                  borderRadius: 13,
+                  border: '1px solid #22314b',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  padding: 0,
+                  textAlign: 'left',
+                  flexShrink: 0,
+                  background: TILE_GRADIENTS[i % TILE_GRADIENTS.length],
+                }}
+              >
+                {t.thumb && (
+                  <img
+                    src={t.thumb}
+                    alt=""
+                    loading="lazy"
+                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    padding: '16px 10px 8px',
+                    fontSize: 12,
+                    fontWeight: 650,
+                    color: '#f1f7ff',
+                    textShadow: '0 1px 3px rgba(0,0,0,.8)',
+                    background: 'linear-gradient(transparent, rgba(0,0,0,0.65))',
+                    textAlign: 'left',
+                  }}
+                >
+                  {t.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ color: '#4d5d75', fontSize: 11.5, marginTop: 26, maxWidth: 620, margin: '26px auto 0', lineHeight: 1.7 }}>
+        Legal-first sources are on by default (Archive.org's public-domain & CC catalog, official Linux ISOs, and a clearly-labeled demo corpus).
+        Torrentor is search software — it stores no files. Only download what you have the right to share.
       </div>
     </div>
   );
@@ -651,6 +763,17 @@ const roundBtn = {
   borderRadius: 12,
   cursor: 'pointer',
   flexShrink: 0,
+};
+const filterChipStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '3px 10px',
+  borderRadius: 99,
+  fontSize: 11.5,
+  border: '1px solid #22314b',
+  background: 'transparent',
+  cursor: 'pointer',
 };
 const suggestChip = {
   display: 'inline-flex',

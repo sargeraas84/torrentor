@@ -21,12 +21,13 @@ Every outbound request runs in the main process and honors your **VPN/proxy rout
 | --- | --- |
 | ⚡ Parallel search | One query runs against every enabled source at once; results **stream in as each source answers**, not after the slowest finishes |
 | 🔀 Smart merge | Results are deduped by infohash (duplicates from different sources collapse into one card with an *"also on …"* badge); a watchdog guarantees no engine can hang a search |
-| 🗂 Rich cards | Category, size, seeders/leechers/downloads, age, infohash preview, source badges, **Demo** labeling on synthetic entries |
+| 🗂 Rich cards | Category, size, seeders/leechers/downloads, age, infohash preview, source badges, **Demo** labeling on synthetic entries; Archive items carry **creator — year** and a poster |
 | 🧲 Magnet actions | Copy magnet · Open in torrent client (OS hand-off) · Copy `.torrent` URL · Download `.torrent` · Open source page — all scheme-validated in main |
 | 🛡 VPN / proxy route | Route **every** search request through your own VPN/proxy (HTTP, SOCKS4/5, auth supported) with a one-click **Check my IP** verification (settings → VPN & privacy) |
 | 🩺 Source health | Settings → Search sources probes every real source with a known-good query and shows healthy / failing per engine — silent regressions (site redesigns that return 0 results) appear as red dots, not green chips |
 | 🔖 Local library | Favorites + recent searches stored as plain JSON in the app-data folder. No account, no cloud, no telemetry |
-| 🔍 Filtering | Category chips (Video/Audio/Apps/Games/Docs/Other), sort by seeders / size / newest / relevance |
+| 🔍 Filtering | Category chips (Video/Audio/Apps/Games/Docs/Other) + **Archive mediatype chips** (Movies/Audio/Texts/Software/…, from Archive's own classification) that AND together; sort by seeders / size / newest / relevance |
+| 🎬 Open-culture browse | Idle-screen **Explore tiles** (public-domain films, old-time radio, LibriVox, silent cinema, 78rpm, NASA) that fire the same honest search — broad catalog phrases fall back to a title-scoped Archive query so literal matches are never buried |
 | 🔒 Secure shell | Sandboxed renderer (CSP, `contextIsolation`, no `nodeIntegration`), whitelisted IPC bridge, allowlist-only engine registry |
 
 ## Shipped sources (the allowlist)
@@ -96,7 +97,7 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 44 pure-Node checks (no window, no network)
+npm test           # 49 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:ui    # drives the real window (real engines): search, favorites,
                     #   VPN check, paging, thumbnails — needs network
