@@ -1,0 +1,13 @@
+# deps / build output
+node_modules/
+renderer/dist/
+dist-exe/
+dist/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# temp
+*.tmp

@@ -1,0 +1,75 @@
+{
+  "name": "torrentor",
+  "productName": "Torrentor",
+  "version": "1.0.0",
+  "description": "Torrentor — a privacy-first torrent meta-search desktop app. One query, many torrent sources at once, deduped by infohash, in one window.",
+  "author": "Torrentor",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "build": "node scripts/generate-icon.js && npm run build:css && npm run build:renderer",
+    "build:css": "tailwindcss -i renderer/styles/globals.css -o renderer/dist/styles.css --minify",
+    "build:renderer": "esbuild renderer/App.jsx --bundle --outfile=renderer/dist/app.js --jsx=automatic --format=iife --minify",
+    "dev": "npm run build && electron .",
+    "start": "npm run dev",
+    "test": "npm run build && node scripts/smoke-test.js",
+    "test:electron": "npm run build && electron scripts/smoke-test-electron.js",
+    "test:ui": "npm run build && electron scripts/ui-playtest.js",
+    "dist": "npm run build && electron-builder --win portable",
+    "dist:installer": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "https-proxy-agent": "^7.0.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socks-proxy-agent": "^8.0.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "build": {
+    "appId": "com.torrentor.app",
+    "productName": "Torrentor",
+    "directories": {
+      "output": "dist-exe",
+      "buildResources": "resources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**",
+      "indexers/**",
+      "renderer/**",
+      "resources/**",
+      "scripts/generate-icon.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "asar": true,
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Torrentor",
+      "uninstallDisplayName": "Torrentor",
+      "deleteAppDataOnUninstall": false
+    },
+    "artifactName": "Torrentor-Setup-${version}.${ext}"
+  }
+}
