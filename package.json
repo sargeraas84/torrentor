@@ -1,7 +1,7 @@
 {
   "name": "torrentor",
   "productName": "Torrentor",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Torrentor — a privacy-first torrent meta-search desktop app. One query, many torrent sources at once, deduped by infohash, in one window.",
   "author": "Torrentor",
   "license": "MIT",
@@ -49,16 +49,16 @@
       "renderer/**",
       "resources/**",
       "scripts/generate-icon.js",
-      "package.json"
+      "package.json",
+      "LICENSE"
     ],
     "win": {
       "target": [
-        "portable",
-        "nsis"
+        "nsis",
+        "portable"
       ],
       "icon": "resources/icon.ico"
     },
-    "asar": true,
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -68,8 +68,37 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Torrentor",
       "uninstallDisplayName": "Torrentor",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico",
+      "license": "LICENSE",
+      "artifactName": "Torrentor-Setup-${version}.${ext}"
     },
-    "artifactName": "Torrentor-Setup-${version}.${ext}"
+    "portable": {
+      "artifactName": "Torrentor-${version}-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "resources/icons/app.png",
+      "identity": null,
+      "category": "public.app-category.utilities",
+      "darkModeSupport": true,
+      "artifactName": "Torrentor-${version}-mac-${arch}.${ext}"
+    },
+    "asar": true
   }
 }

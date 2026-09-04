@@ -1,19 +1,28 @@
-# Release CI — builds the portable Windows .exe on every v* tag push and
-# opens a draft GitHub release with the artifact attached. Publish the
-# draft from the Releases page when you're ready.
+# Release CI — builds installers on every v* tag push (or on demand via
+# workflow_dispatch) and opens a draft GitHub release with all artifacts
+# attached. Publish the draft from the Releases page when ready.
 name: release
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: torrentor-windows
+          - os: macos-latest
+            artifact: torrentor-macos
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -27,10 +36,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build portable .exe
+      - name: Build installers
         run: npm run dist
 
-      - name: Open draft release with artifact
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist-exe/*
+          if-no-files-found: error
+
+  # Tags only: collect both platforms' artifacts into one draft release.
+  # Manual runs (workflow_dispatch) skip this step — grab the artifacts
+  # from the run page instead.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: torrentor-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Open draft release with installers
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist-exe/*.exe --draft --title "${{ github.ref_name }}" --generate-notes
+        run: gh release create "${{ github.ref_name }}" artifacts/* --draft --title "${{ github.ref_name }}" --generate-notes

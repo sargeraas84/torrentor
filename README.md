@@ -4,7 +4,7 @@
 [![Website](https://img.shields.io/badge/website-sargeraas84.github.io%2Ftorrentor-2dd4bf)](https://sargeraas84.github.io/torrentor/)
 
 > 🌐 **Website:** <https://sargeraas84.github.io/torrentor/> — landing page and full docs.  
-> ⬇️ **Download:** portable Windows build on the [latest release](https://github.com/sargeraas84/torrentor/releases/latest) — no install needed.
+> ⬇️ **Download:** Windows installer + portable `.exe`, and macOS `.dmg` (Intel & Apple Silicon), on the [latest release](https://github.com/sargeraas84/torrentor/releases/latest).
 
 A privacy-first **torrent meta-search engine for Windows**, built with Electron.
 
@@ -107,13 +107,19 @@ npm test           # 49 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:ui    # drives the real window (real engines): search, favorites,
                     #   VPN check, paging, thumbnails — needs network
-npm run dist       # electron-builder → portable .exe in dist-exe/
-npm run dist:installer  # NSIS installer
+npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 
+On **macOS**, the same `npm run dist` produces a universal (Intel + Apple
+Silicon) `.dmg` and `.zip`. The macOS build is **unsigned** — the first launch
+requires right-click → **Open** (Gatekeeper), which is normal for open-source
+apps without an Apple Developer account.
+
 **Automated releases:** push a `v*` tag and CI (`.github/workflows/release.yml`)
-builds the portable `.exe` on a Windows runner and opens a **draft release** with the
-artifact attached — publish it from the Releases page when ready:
+builds both platforms — Windows installer + portable `.exe` on a Windows runner,
+macOS universal `.dmg` + `.zip` on a macOS runner — and opens a **draft release**
+with everything attached. Publish it from the Releases page when ready (a
+`workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
 git tag v1.2.0 && git push origin v1.2.0

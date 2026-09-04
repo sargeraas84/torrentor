@@ -257,11 +257,14 @@ function main() {
 
   const png256 = rendered.find((r) => r.size === 256);
   const png32 = rendered.find((r) => r.size === 32);
-  fs.writeFileSync(path.join(ICONS, 'app.png'), png256.png);
+  // 512px macOS app icon (electron-builder converts it to .icns).
+  // Supersample 2x to keep the build fast; the flat-shaded mark scales cleanly.
+  const png512 = renderIcon(512, 2);
+  fs.writeFileSync(path.join(ICONS, 'app.png'), png512.png);
   fs.writeFileSync(path.join(ICONS, 'tray.png'), png32.png);
   fs.writeFileSync(path.join(RES, 'torrentor-mark.png'), png256.png);
 
-  console.log('[generate-icon] wrote resources/icon.ico (16/24/32/48/64/128/256) + icons/app.png, icons/tray.png, torrentor-mark.png');
+  console.log('[generate-icon] wrote resources/icon.ico (16/24/32/48/64/128/256) + icons/app.png (512), icons/tray.png, torrentor-mark.png');
 }
 
 main();
