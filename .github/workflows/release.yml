@@ -68,4 +68,6 @@ jobs:
       - name: Open draft release with installers
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" artifacts/* --draft --title "${{ github.ref_name }}" --generate-notes
+        # Only the archives (exe/dmg/zip) — dist-exe also contains the
+        # unpacked app dirs (win-unpacked, mac), which are not assets.
+        run: gh release create "${{ github.ref_name }}" artifacts/*.{exe,dmg,zip} --draft --title "${{ github.ref_name }}" --generate-notes
