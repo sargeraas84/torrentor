@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documentation — Torrentor</title>
+  <meta name="description" content="Torrentor documentation: quick start, adding search sources, VPN/proxy configuration, engine health, and architecture." />
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/site.css" />
+  <noscript><style>.rv { opacity: 1 !important; transform: none !important; filter: none !important; }</style></noscript>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="mesh" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <nav class="nav" aria-label="Primary">
+    <div class="nav-pill">
+      <a class="brand" href="index.html" aria-label="Torrentor home">
+        <img src="assets/mark.svg" alt="" width="26" height="26" />
+        Torrentor
+      </a>
+      <div class="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#sources">Sources</a>
+        <a href="index.html#vpn">VPN &amp; privacy</a>
+        <a href="index.html#download">Download</a>
+        <a href="docs.html">Docs</a>
+      </div>
+      <a class="nav-cta" href="index.html#download">Get it</a>
+      <button class="burger" type="button" aria-expanded="false" aria-label="Open menu" aria-controls="menu-overlay">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="overlay" id="menu-overlay" role="dialog" aria-label="Menu">
+    <a href="index.html#features">Features</a>
+    <a href="index.html#sources">Sources</a>
+    <a href="index.html#vpn">VPN &amp; privacy</a>
+    <a href="index.html#download">Download</a>
+    <a href="docs.html#quick-start">Documentation</a>
+    <a href="https://github.com/sargeraas84/torrentor">GitHub ↗</a>
+  </div>
+
+  <main id="main">
+    <header class="docs-hero">
+      <div class="wrap">
+        <span class="eyebrow rv"><span class="dot"></span>Documentation</span>
+        <h1 class="rv" data-d="1">Torrentor <span class="grad">docs</span></h1>
+        <p class="lead rv" data-d="2">Everything you need: install, add sources, wire up your VPN, read the health checks, and understand the architecture.</p>
+      </div>
+    </header>
+
+    <section style="padding-top: 0;">
+      <div class="wrap">
+        <div class="docs-layout">
+          <nav class="docs-nav" aria-label="Documentation sections">
+            <a href="#quick-start">Quick start</a>
+            <a href="#adding-sources">Adding sources</a>
+            <a href="#vpn-config">VPN &amp; proxy config</a>
+            <a href="#engine-health">Engine health</a>
+            <a href="#architecture">Architecture</a>
+          </nav>
+
+          <div>
+            <!-- ================= quick start ================= -->
+            <div class="doc-sec" id="quick-start">
+              <h2>Quick start</h2>
+              <p>Requires <b>Node.js 20+</b>. Torrentor is a plain Electron app — no service, no account, no telemetry.</p>
+              <div class="cmd">
+                <code>git clone https://github.com/sargeraas84/torrentor.git &amp;&amp; cd torrentor</code>
+                <button class="cpy" type="button">copy</button>
+              </div>
+              <div class="cmd">
+                <code>npm install</code>
+                <button class="cpy" type="button">copy</button>
+              </div>
+              <div class="cmd">
+                <code>npm start</code>
+                <button class="cpy" type="button">copy</button>
+              </div>
+              <div class="card">
+                <h3 style="margin-bottom: 8px;">The test suite</h3>
+                <table>
+                  <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
+                  <tbody>
+                    <tr><td><code>npm test</code></td><td>49 pure-Node checks — engines, honesty gate, merge, paging, health runner. No window, no network.</td></tr>
+                    <tr><td><code>npm run test:electron</code></td><td>8 IPC checks through the real main process — search, favorites, health round-trip.</td></tr>
+                    <tr><td><code>npm run test:ui</code></td><td>25-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p>Searching works out of the box: type <b>ubuntu</b>, <b>blender open movie</b> or <b>moby dick audiobook</b> and hit enter. With zero network, the <b>Demo</b> engine still shows the full flow (every Demo card is labeled).</p>
+            </div>
+
+            <!-- ================= adding sources ================= -->
+            <div class="doc-sec" id="adding-sources">
+              <h2>Adding sources</h2>
+              <p>Every engine lives in <code>indexers/</code>. The registry (<code>indexers/registry.js</code>) is the <b>allowlist</b> — the app never loads search plugins from the network, and no engine can bypass the proxy-aware network client.</p>
+              <p>An adapter is one file. The contract: <code>search(query, ctx)</code> returns normalized results, where <code>ctx.network</code> is the proxy-bound client:</p>
+<pre><code>// indexers/my-source.js
+const { normalizeResult } = require('./base');
+const ENGINE = { id: 'my-source', name: 'My Source', tagline: '…', kind: 'community' };
+
+async function search(query, ctx) {
+  const data = await ctx.network.getJson(
+    'https://my-index.example/api?q=' + encodeURIComponent(query),
+    { timeoutMs: ctx.timeoutMs, signal: ctx.signal }
+  );
+  return data.items.map((it) =>
+    normalizeResult({
+      itemId: it.id, title: it.name, infohash: it.infoHash,
+      sizeBytes: it.size, seeders: it.seeders, pageUrl: it.url,
+    }, ENGINE)
+  );
+}
+module.exports = { engine: ENGINE, search };</code></pre>
+              <p>Then register it in <code>indexers/registry.js</code>. If the source is real and probe-able, add a known-good <code>probe</code> term so the engine-health self-test covers it.</p>
+              <div class="note"><b>You own the decision.</b> Review the source's terms, rate limits and content policy before adding it. Torrentor ships legal-friendly sources by default; adding an index is a deliberate operator choice.</div>
+            </div>
+
+            <!-- ================= vpn ================= -->
+            <div class="doc-sec" id="vpn-config">
+              <h2>VPN &amp; proxy config</h2>
+              <p>Torrentor doesn't bundle or sell a VPN. It makes any VPN you already run <b>enforceable</b> for search traffic: every outbound engine request goes through your route, and the exit-IP check is the source of truth.</p>
+              <div class="card">
+                <h3 style="margin-bottom: 8px;">Supported proxy types</h3>
+                <table>
+                  <thead><tr><th>Type</th><th>Use for</th></tr></thead>
+                  <tbody>
+                    <tr><td><code>socks5</code></td><td>Recommended — Tor, <code>ssh -D 1080</code>, WireGuard/OpenVPN apps exposing a local SOCKS port.</td></tr>
+                    <tr><td><code>socks4</code></td><td>Legacy SOCKS proxies.</td></tr>
+                    <tr><td><code>http</code></td><td>HTTP CONNECT proxies; credentials supported.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <ol class="steps">
+                <li><div><b>Run your VPN</b><p>Any client that exposes a local proxy port — Tailscale, OpenVPN, Tor Browser, <code>ssh -D</code>.</p></div></li>
+                <li><div><b>Save &amp; check IP</b><p>Settings → VPN &amp; privacy → enter host/port → <b>Save &amp; check IP</b>. The app shows the exit address the world sees.</p></div></li>
+                <li><div><b>Verify</b><p>If the exit IP matches your VPN's country/city, the route is live for all engines.</p></div></li>
+              </ol>
+              <div class="note"><b>Honest limits.</b> The proxy covers Torrentor's search traffic only — file downloads happen in your torrent client and follow <i>its</i> settings. The app can't detect your VPN by itself; only the exit-IP check proves it.</div>
+            </div>
+
+            <!-- ================= health ================= -->
+            <div class="doc-sec" id="engine-health">
+              <h2>Engine health</h2>
+              <p>Settings → Search sources runs a <b>self-test</b>: each real engine executes a known-good probe query through the same proxy-bound path a real search uses. <b>Healthy</b> means the probe returned ≥ 1 result — zero results is reported as failing, never as a silent green chip.</p>
+              <table>
+                <thead><tr><th>Engine</th><th>Probe</th></tr></thead>
+                <tbody>
+                  <tr><td>Internet Archive</td><td><code>big buck bunny</code></td></tr>
+                  <tr><td>Linux releases</td><td><code>ubuntu 24.04</code> — this probe caught the releases.ubuntu.com redesign</td></tr>
+                  <tr><td>Arch Linux</td><td><code>archlinux</code></td></tr>
+                  <tr><td>Demo</td><td>excluded — offline by design, always “available”</td></tr>
+                </tbody>
+              </table>
+              <p>Verdicts (ok/count/latency/error) persist locally, so dots paint instantly on revisit. Health is <b>informational</b>: a failing source isn't auto-disabled — you can see it's dead before enabling it.</p>
+            </div>
+
+            <!-- ================= architecture ================= -->
+            <div class="doc-sec" id="architecture">
+              <h2>Architecture</h2>
+              <p>Three layers, strict boundaries. The renderer is sandboxed (CSP, <code>contextIsolation</code>, no <code>nodeIntegration</code>) and touches the network <b>never</b> — it talks only through a typed, whitelisted bridge.</p>
+              <table>
+                <thead><tr><th>Layer</th><th>Owns</th></tr></thead>
+                <tbody>
+                  <tr><td><code>main.js</code></td><td>Window, IPC surface, orchestration, storage, proxy routing — every outbound request goes through <code>lib/network</code> bound to your VPN route.</td></tr>
+                  <tr><td><code>indexers/</code></td><td>Engine adapters (registry allowlist). Each knows one public interface and normalizes into one result shape.</td></tr>
+                  <tr><td><code>lib/orchestrator.js</code></td><td>Parallel fan-out, per-engine watchdog, infohash dedupe, honesty ordering (real before demo, relevance before size), streaming snapshots.</td></tr>
+                  <tr><td><code>renderer/</code></td><td>UI only: search box, streaming cards, filters, favorites/history, Settings. State flows down, events flow up.</td></tr>
+                </tbody>
+              </table>
+              <p><b>Honesty rules.</b> A query's results must genuinely match it — Archive items are gated on literal title/identifier tokens, not raw download counts, and broad catalog phrases fall back to a title-scoped query so real matches are never buried. Demo fixtures carry fabricated seeders but can never outrank a real result.</p>
+              <p><b>Storage.</b> Favorites, history, prefs and health verdicts are plain JSON in the app-data folder — atomic debounced writes, no cloud.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot-grid">
+        <a class="brand" href="index.html" style="font-size: 16px;">
+          <img src="assets/mark.svg" alt="" width="28" height="28" />
+          Torrentor
+        </a>
+        <div class="cols">
+          <div>
+            <h4>Product</h4>
+            <ul>
+              <li><a href="index.html#features">Features</a></li>
+              <li><a href="index.html#sources">Sources</a></li>
+              <li><a href="index.html#vpn">VPN &amp; privacy</a></li>
+              <li><a href="index.html#download">Download</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Docs</h4>
+            <ul>
+              <li><a href="docs.html#quick-start">Quick start</a></li>
+              <li><a href="docs.html#adding-sources">Adding sources</a></li>
+              <li><a href="docs.html#vpn-config">VPN config</a></li>
+              <li><a href="docs.html#engine-health">Engine health</a></li>
+              <li><a href="docs.html#architecture">Architecture</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Project</h4>
+            <ul>
+              <li><a href="https://github.com/sargeraas84/torrentor">GitHub ↗</a></li>
+              <li><a href="https://github.com/sargeraas84/torrentor/releases">Releases ↗</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <p class="foot-note">Torrentor searches legal-friendly catalogs that publish torrents. No pirate-index scrapers, no bundled VPN, no accounts, no telemetry.</p>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

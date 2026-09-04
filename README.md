@@ -1,5 +1,7 @@
 # Torrentor
 
+> 🌐 **Website:** <https://sargeraas84.github.io/torrentor/> — landing page and full docs.
+
 A privacy-first **torrent meta-search engine for Windows**, built with Electron.
 
 One query. Many torrent sources at once. One window.
