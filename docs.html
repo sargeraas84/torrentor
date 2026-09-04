@@ -165,6 +165,15 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <h2>Changelog</h2>
               <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
               <div class="card">
+                <h3 style="margin-bottom: 4px;">v1.2.0 — Cross-platform installers</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-04</p>
+                <ul>
+                  <li><b>Windows:</b> a proper NSIS <b>installer</b> (choose install dir, desktop &amp; Start-menu shortcuts, uninstaller) plus a no-install <b>portable <code>.exe</code></b> — two clearly-named artifacts instead of one ambiguous <code>Setup</code> file.</li>
+                  <li><b>macOS:</b> a <b>universal <code>.dmg</code></b> and <code>.zip</code> that run on Intel and Apple Silicon, with the 512px app icon.</li>
+                  <li><b>CI builds both platforms</b> on every <code>v*</code> tag (or on demand from the Actions tab) and collects everything into one draft release. macOS builds are unsigned — first launch is right-click → Open.</li>
+                </ul>
+              </div>
+              <div class="card">
                 <h3 style="margin-bottom: 4px;">v1.1.0 — “Open culture”</h3>
                 <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-04 · <a href="https://github.com/sargeraas84/torrentor/releases/tag/v1.1.0">release ↗</a></p>
                 <ul>
@@ -183,7 +192,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
                 </ul>
               </div>
-              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 49 Node checks, 8 Electron IPC checks, and a 25-step real-window playtest. A CI workflow now builds the portable <code>.exe</code> and opens a draft release on every <code>v*</code> tag, so future releases don't need a local build.</div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 49 Node checks, 8 Electron IPC checks, and a 25-step real-window playtest. CI now builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab).</div>
             </div>
         </div>
       </div>
