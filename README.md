@@ -119,6 +119,10 @@ artifact attached — publish it from the Releases page when ready:
 git tag v1.2.0 && git push origin v1.2.0
 ```
 
+**Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`
+branch automatically (`.github/workflows/deploy-site.yml`) — no more manual
+`git subtree push`.
+
 ## Project structure
 
 ```

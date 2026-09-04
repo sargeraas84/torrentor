@@ -1,0 +1,46 @@
+# Site deploy — publishes site/ to the gh-pages branch automatically on
+# every push to master (and on manual dispatch). Replaces the old manual
+# `git subtree push --prefix site origin gh-pages` step.
+name: deploy-site
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Publish site/ to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          AUTH="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          rm -rf /tmp/gh-pages-deploy
+          if git ls-remote --exit-code "$AUTH" refs/heads/gh-pages >/dev/null 2>&1; then
+            git clone --quiet --depth 1 --branch gh-pages "$AUTH" /tmp/gh-pages-deploy
+          else
+            git init --quiet -b gh-pages /tmp/gh-pages-deploy
+          fi
+          cd /tmp/gh-pages-deploy
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          find . -mindepth 1 ! -path './.git/*' ! -name '.git' -delete
+          cp -r "$GITHUB_WORKSPACE/site/." .
+          touch .nojekyll
+          git add -A
+          git commit --quiet -m "site: deploy ${GITHUB_SHA:0:7}" || echo "no changes to publish"
+          git push --quiet "$AUTH" HEAD:gh-pages
+          echo "site published to gh-pages"
