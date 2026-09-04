@@ -54,6 +54,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # gh release create needs a git repo to resolve owner/repo and the tag.
+      - name: Check out
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
