@@ -15,7 +15,7 @@
     "test": "npm run build && node scripts/smoke-test.js",
     "test:electron": "npm run build && electron scripts/smoke-test-electron.js",
     "test:ui": "npm run build && electron scripts/ui-playtest.js",
-    "dist": "npm run build && electron-builder --win portable",
+    "dist": "npm run build && electron-builder --publish never",
     "dist:installer": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
