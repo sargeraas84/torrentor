@@ -1,0 +1,23 @@
+# CI — static checks that run on every push and pull request.
+# Currently: actionlint over every workflow file, so a YAML or expression
+# mistake is caught here instead of breaking a release build later.
+name: ci
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Lint GitHub Actions workflows
+        uses: raven-actions/actionlint@v2

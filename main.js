@@ -234,9 +234,19 @@ function handle(channel, fn) {
   });
 }
 
+/** Effective on/off for an engine: explicit prefs win, else the engine's
+ *  shipped default (opt-in engines like The Pirate Bay default to off). */
+const engineEnabled = (e, prefs) => {
+  const v = prefs.engines[e.id];
+  return v === undefined ? e.defaultEnabled !== false : v === true;
+};
+
 const enabledEngineIds = () => {
   const prefs = storage.getPrefs();
-  return registry.list().filter((id) => prefs.engines[id] !== false);
+  return registry.list().filter((id) => {
+    const e = registry.get(id);
+    return !!e && engineEnabled(e, prefs);
+  });
 };
 
 // ------------------------------------------------------- search pipeline
@@ -282,7 +292,7 @@ async function performSearch(query, engineIds) {
 function registerIpc() {
   handle('app:getState', () => ({
     version: app.getVersion(),
-    engines: registry.meta().map((e) => ({ ...e, enabled: storage.getPrefs().engines[e.id] !== false })),
+    engines: registry.meta().map((e) => ({ ...e, enabled: engineEnabled(e, storage.getPrefs()) })),
     prefs: storage.getPrefs(),
     history: storage.getHistory(),
     favorites: storage.getFavorites(),

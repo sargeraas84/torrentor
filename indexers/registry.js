@@ -17,6 +17,7 @@ const { engine: demoEngine, search: searchDemo } = require('./demo-curated');
 const { engine: archiveEngine, search: searchArchive, searchPage: searchArchivePage } = require('./archive-org');
 const { engine: distroEngine, search: searchDistro } = require('./distro-releases');
 const { engine: archEngine, search: searchArch } = require('./arch-releases');
+const { engine: piratebayEngine, search: searchPiratebay } = require('./piratebay');
 
 const ENGINES = [
   { ...demoEngine, search: searchDemo },
@@ -25,6 +26,10 @@ const ENGINES = [
   { ...archiveEngine, search: searchArchive, searchPage: searchArchivePage },
   { ...distroEngine, search: searchDistro },
   { ...archEngine, search: searchArch },
+  // Community index (apibay mirror). Opt-in: ships disabled by default
+  // so fresh installs keep legal-friendly defaults — see the adapter's
+  // header notes; the operator owns this content-policy decision.
+  { ...piratebayEngine, search: searchPiratebay },
 ];
 
 const byId = new Map(ENGINES.map((e) => [e.id, e]));
@@ -37,6 +42,7 @@ function meta() {
     tagline: e.tagline,
     kind: e.kind,
     demo: !!e.demo,
+    defaultEnabled: e.defaultEnabled !== false,
   }));
 }
 

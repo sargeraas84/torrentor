@@ -165,6 +165,15 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <h2>Changelog</h2>
               <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
               <div class="card">
+                <h3 style="margin-bottom: 4px;">v1.3.0 — Opt-in community index + release CI hardening</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-05</p>
+                <ul>
+                  <li><b>The Pirate Bay engine (opt-in)</b> — the classic community index via the apibay JSON mirror: infohash, seeders, size and age on every card. It is <b>disabled by default</b> to keep fresh installs legal-friendly — enable it in Settings → Search sources. Adult categories are always filtered client-side.</li>
+                  <li><b>Release CI hardening</b> — fixed the artifact upload/download permission (the v4 artifact actions authenticate on the <code>actions</code> scope, which the workflow had dropped to none) and ship only the installer archives between build jobs, not the unpacked app dirs.</li>
+                  <li><b>Workflow linting</b> — a new CI check runs <code>actionlint</code> over every workflow so a YAML/expression mistake is caught before it can break a release.</li>
+                </ul>
+              </div>
+              <div class="card">
                 <h3 style="margin-bottom: 4px;">v1.2.0 — Cross-platform installers</h3>
                 <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-04</p>
                 <ul>
@@ -192,7 +201,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
                 </ul>
               </div>
-              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 49 Node checks, 8 Electron IPC checks, and a 25-step real-window playtest. CI now builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab).</div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 52 Node checks, 8 Electron IPC checks, and a 25-step real-window playtest. CI now builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab).</div>
             </div>
         </div>
       </div>

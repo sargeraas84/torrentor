@@ -51,6 +51,10 @@ network. Default sources are **legal-friendly**, so a fresh install is useful an
    from the projects' release pages.
 4. **Arch Linux** — official Arch Linux monthly ISO torrents (infohash, magnet and
    `.torrent` URL per release) from Arch's public release feed (`releng/releases/json`).
+5. **The Pirate Bay** *(opt-in, off by default)* — the classic community index via
+   the apibay JSON mirror: rich cards (infohash, seeders, size, age). This is **not**
+   a legal-friendly source, so it ships **disabled** — enable it in Settings → Search
+   sources if you want it. Adult categories are always filtered client-side.
 
 ### Adding more providers
 
@@ -122,7 +126,7 @@ with everything attached. Publish it from the Releases page when ready (a
 `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.2.0 && git push origin v1.2.0
+git tag v1.3.0 && git push origin v1.3.0
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`

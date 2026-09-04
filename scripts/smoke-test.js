@@ -364,6 +364,69 @@ async function main() {
     assert.strictEqual(releases[0].created, Date.parse('2026-09-01T17:00:00.000Z'));
   });
 
+  // -------------------------- pirate bay helpers -------------------------
+  const pb = require('../indexers/piratebay');
+  ok('piratebay category mapping (adult always dropped)', () => {
+    assert.strictEqual(pb.mapCategory('201'), 'video');
+    assert.strictEqual(pb.mapCategory('207'), 'video');
+    assert.strictEqual(pb.mapCategory('104'), 'audio');
+    assert.strictEqual(pb.mapCategory('301'), 'apps');
+    assert.strictEqual(pb.mapCategory('401'), 'games');
+    assert.strictEqual(pb.mapCategory('601'), 'documents');
+    assert.strictEqual(pb.mapCategory('699'), 'other');
+    assert.strictEqual(pb.mapCategory('505'), null, 'adult section dropped');
+    assert.strictEqual(pb.mapCategory(''), 'other');
+  });
+  ok('piratebay row normalization + honesty gate', () => {
+    const out = pb.normalizeRow(
+      {
+        id: '59191690',
+        name: 'Ubuntu 22.04 LTS &amp; friends',
+        info_hash: '2C6B6858D61DA9543D4231A71DB4B1C9264B0685',
+        leechers: '4',
+        seeders: '37',
+        size: '3654957056',
+        added: '1652877231',
+        category: '303',
+      },
+      'ubuntu'
+    );
+    assert.ok(out, 'real row normalized');
+    assert.strictEqual(out.infohash, '2c6b6858d61da9543d4231a71db4b1c9264b0685', 'hex lowercased');
+    assert.strictEqual(out.seeders, 37);
+    assert.strictEqual(out.leechers, 4);
+    assert.strictEqual(out.sizeBytes, 3654957056);
+    assert.strictEqual(out.uploadedAt, 1652877231000, 'unix seconds → ms');
+    assert.strictEqual(out.title, 'Ubuntu 22.04 LTS & friends', 'entities decoded');
+    assert.strictEqual(out.category, 'apps');
+    assert.ok(out.torrentUrl.endsWith('/t.php?id=59191690'), 'torrent download URL');
+    assert.strictEqual(
+      pb.normalizeRow({ name: 'Unrelated movie', info_hash: 'ab'.repeat(20), category: '201' }, 'ubuntu'),
+      null,
+      'unrelated name gated out'
+    );
+    assert.strictEqual(pb.normalizeRow({ name: 'Ubuntu X', info_hash: '', category: '201' }, 'ubuntu'), null, 'missing hash dropped');
+    assert.strictEqual(pb.normalizeRow({ name: 'Ubuntu XXX', info_hash: 'ab'.repeat(20), category: '505' }, 'ubuntu'), null, 'adult dropped');
+    assert.strictEqual(pb.normalizeRow({ name: 'No results returned', info_hash: 'ab'.repeat(20), category: '0' }, 'ubuntu'), null, 'no-results sentinel dropped');
+  });
+  ok('piratebay cleanRows sorts by seeders, tolerates junk shapes', () => {
+    const mk = (i, seeds) => ({
+      id: String(i),
+      name: `Ubuntu ${i}`,
+      info_hash: 'f'.repeat(40),
+      seeders: String(seeds),
+      leechers: '0',
+      size: '100',
+      added: '1',
+      category: '303',
+    });
+    const out = pb.cleanRows([mk(1, 5), mk(2, 50), mk(3, 1)], 'ubuntu');
+    assert.deepStrictEqual(out.map((r) => r.seeders), [50, 5, 1], 'most-seeded first');
+    assert.strictEqual(pb.cleanRows({ error: 'boom' }, 'ubuntu').length, 0, 'non-array response tolerated');
+    assert.strictEqual(pb.cleanRows([], 'ubuntu').length, 0);
+    assert.ok(pb.cleanRows(Array.from({ length: 80 }, (_, i) => mk(i, i)), 'ubuntu').length <= 50, 'capped at 50');
+  });
+
   // ---------------------------- engine health ---------------------------
   const { runHealthChecks } = require('../lib/health');
   const fakeEngine = (id, impl) => ({

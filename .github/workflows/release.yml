@@ -10,7 +10,10 @@ on:
   workflow_dispatch:
 
 permissions:
+  # contents: create the release + attach assets; actions: upload/download
+  # build artifacts between jobs (v4 artifact actions authenticate on this scope)
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -43,7 +46,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist-exe/*
+          # Only the installer archives — dist-exe also holds the unpacked
+          # app dirs (win-unpacked, mac-universal) and blockmaps, which are
+          # not assets. (No brace globs: @actions/glob runs with nobrace.)
+          path: |
+            dist-exe/*.exe
+            dist-exe/*.dmg
+            dist-exe/*.zip
           if-no-files-found: error
 
   # Tags only: collect both platforms' artifacts into one draft release.
@@ -72,6 +81,7 @@ jobs:
       - name: Open draft release with installers
         env:
           GH_TOKEN: ${{ github.token }}
-        # Only the archives (exe/dmg/zip) — dist-exe also contains the
-        # unpacked app dirs (win-unpacked, mac), which are not assets.
+        # Belt-and-braces: the upload step already ships only archives,
+        # but this glob also guards against stray files in the artifact.
+        # (bash, not @actions/glob, so brace expansion is fine here.)
         run: gh release create "${{ github.ref_name }}" artifacts/*.{exe,dmg,zip} --draft --title "${{ github.ref_name }}" --generate-notes
