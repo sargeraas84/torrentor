@@ -3,6 +3,7 @@ const React = require('react');
 const { useState, useEffect } = require('react');
 const { I } = require('./icons');
 const fmt = require('../../lib/format');
+const { nextPreset, limitLabel } = require('../../lib/download-presets');
 
 const api = window.torrentor;
 
@@ -417,18 +418,7 @@ const limitBtn = {
   cursor: 'pointer',
   flexShrink: 0,
 };
-// Speed-limit presets (bytes/sec); clicking the tray's limit control cycles.
-const LIMIT_PRESETS = [0, 100 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024];
-function nextPreset(current) {
-  const v = Number(current) || 0;
-  let i = LIMIT_PRESETS.indexOf(v);
-  if (i < 0) i = 0; // out-of-band value → wrap from unlimited
-  return LIMIT_PRESETS[(i + 1) % LIMIT_PRESETS.length];
-}
-function limitLabel(bps) {
-  const v = Number(bps) || 0;
-  return v > 0 ? `${fmt.formatBytes(v).replace(/\s+/g, '')}/s` : '\u221e';
-}
+
 const clearBtn = {
   background: 'transparent',
   border: '1px solid #22314b',

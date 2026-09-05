@@ -42,6 +42,11 @@ const EXPLORE_TILES = [
 const APP_ID = 'com.torrentor.app';
 const SMOKE_MODE = !!process.env.TORRENTOR_SMOKE;
 const dataDir = () => (SMOKE_MODE && process.env.TORRENTOR_DATA_DIR) || app.getPath('userData');
+// Host allowlist for direct downloads. Smoke mode additionally trusts
+// loopback so the two-boot resume test can serve a genuine Range-capable
+// HTTP download from a local test server (never in a normal run).
+const downloadAllowHosts = () =>
+  SMOKE_MODE ? [...network.DOWNLOAD_ALLOW_HOSTS, '127.0.0.1', 'localhost'] : network.DOWNLOAD_ALLOW_HOSTS;
 
 let mainWindow = null;
 let splashWindow = null; // animated launcher shown while the UI boots
@@ -68,6 +73,11 @@ async function bootstrap() {
   app.setAppUserModelId(APP_ID);
   storage = new Storage(dataDir());
   applyProxyPrefs();
+  // Default speed limit for new downloads (Settings → Library). Per-transfer
+  // tray controls override individual files; the smoke-mode loopback host is
+  // registered for the two-boot auto-resume test.
+  downloads.setDefaultSpeedLimit(Number(storage.getPrefs().downloadSpeedLimit) || 0);
+  downloads.setDefaultAllowHosts(downloadAllowHosts());
 
   // Auto-resume interrupted downloads: transfers that were in flight when
   // the app last quit were persisted (url + approved destination). They
@@ -493,7 +503,7 @@ function registerIpc() {
         throw new Error('Invalid download URL.');
       }
       if (!/^https?:$/.test(parsed.protocol)) throw new Error('Only http(s) downloads are supported.');
-      if (!network.hostAllowed(parsed.hostname)) throw new Error('That download host is not on the allowlist.');
+      if (!network.hostAllowed(parsed.hostname, downloadAllowHosts())) throw new Error('That download host is not on the allowlist.');
     }
 
     const label = isDemo ? downloads.demoLabel(href) : downloads.suggestedName(href);
@@ -516,7 +526,10 @@ function registerIpc() {
       }
     }
 
-    const transfer = downloads.startDownload(href, destPath, (entry, kind) => broadcastDownloads(kind, entry.id));
+    // New transfers inherit the Settings → default speed limit (bytes/sec).
+    const transfer = downloads.startDownload(href, destPath, (entry, kind) => broadcastDownloads(kind, entry.id), {
+      maxBytesPerSec: Number(storage.getPrefs().downloadSpeedLimit) || 0,
+    });
     return { cancelled: false, transfer };
   });
 

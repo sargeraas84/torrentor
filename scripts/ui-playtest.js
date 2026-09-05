@@ -312,11 +312,22 @@ async function main() {
   const rows = await js(`document.querySelectorAll('[data-testid="history-row"]').length`);
   ok(`recent searches recorded: ${rows} entries in Recent tab`);
 
-  // ===== 9. Demo direct download: offline picker → file → tray =====
-  // The Demo engine mirrors the Archive flow with locally-generated sample
-  // files, so the whole download UI is drivable with zero network. Query a
-  // term only the demo catalog matches ('fluffing a duck'), then use the
-  // demo card's picker button.
+  // ===== 9. Demo download — paced by the DEFAULT speed limit =====
+  // The tray's per-transfer control only matters while a transfer is LIVE,
+  // so this step first sets Settings → Library's default limit to 100 KB/s
+  // (it applies to new downloads; the demo payload is sized to keep a
+  // 100 KB/s transfer streaming for several seconds), starts a demo file,
+  // watches the paced chip, raises the limit mid-flight via the tray
+  // control, then lifts it to finish instantly. Zero network.
+  await click('[data-testid="open-settings"]');
+  await waitFor('settings modal for the default limit', `!!document.querySelector('[data-testid="st-library"]')`);
+  await click('[data-testid="st-library"]');
+  await waitFor('default download-limit select', `!!document.querySelector('[data-testid="dl-limit-default"]')`);
+  await js(`(() => { const el = document.querySelector('[data-testid="dl-limit-default"]'); if (!el) return false; el.value = '102400'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await wait(150);
+  await click('[data-testid="close-settings"]');
+  await waitFor('settings closed after setting the default limit', `!document.querySelector('[data-testid="st-library"]')`);
+
   await click('[data-testid="tab-search"]');
   await setText('[data-testid="search-input"]', 'fluffing a duck');
   await wait(80);
@@ -342,8 +353,26 @@ async function main() {
   const modalRow = await textOf('[data-testid="files-modal"]');
   ok('demo card download button opens the file picker (offline)', modalRow.replace(/\s+/g, ' ').slice(0, 60));
   await click('[data-testid="files-modal"] [data-testid="file-download"]');
-  await waitFor('tray shows the finished demo transfer', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return t && t.innerText.includes('demo-content.txt') && t.innerText.includes('Done'); })()`, 8000);
-  ok('demo file streamed end-to-end: picker → save → progress → Done chip');
+  // New transfer inherited the 100 KB/s default — the live chip must show it.
+  await waitFor('paced chip shows the inherited 100 KB/s limit', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-limit"]'); return b && b.getAttribute('data-limit') === '102400'; })()`, 8000);
+  // An unlimited demo lands in well under a second, so if the chip is STILL
+  // downloading (limit control present, no Done) after ~1.3 s the 100 KB/s
+  // default is genuinely pacing the transfer.
+  await wait(1300);
+  const pacedStill = await js(`(() => { const t = document.querySelector('[data-testid="download-tray"]'); const b = t && t.querySelector('[data-testid="dl-limit"]'); return !!b && b.getAttribute('data-limit') === '102400' && !t.innerText.includes('Done'); })()`);
+  if (!pacedStill) defect('default 100 KB/s visibly paces the demo download', 'chip not still streaming at 100 KB/s after ~1.3s');
+  else ok('default speed limit paces new downloads', 'still streaming at 100 KB/s after ~1.3s (an unlimited demo finishes instantly)');
+  // Raise the live limit from the tray control (100 → 256 KB/s)…
+  await click('[data-testid="download-tray"] [data-testid="dl-limit"]');
+  await waitFor('per-transfer control updates to 256 KB/s', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-limit"]'); return b && b.getAttribute('data-limit') === '262144'; })()`, 6000);
+  ok('per-transfer tray control raises the live limit mid-flight (100 → 256 KB/s)');
+  // …then cycle through the rest back to unlimited so it finishes at once.
+  await click('[data-testid="download-tray"] [data-testid="dl-limit"]'); // → 512 KB/s
+  await click('[data-testid="download-tray"] [data-testid="dl-limit"]'); // → 1 MB/s
+  await click('[data-testid="download-tray"] [data-testid="dl-limit"]'); // → ∞
+  await waitFor('limit control returns to unlimited', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-limit"]'); return b && b.getAttribute('data-limit') === '0'; })()`, 6000);
+  await waitFor('demo transfer finishes once the limit is lifted', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return t && t.innerText.includes('demo-content.txt') && t.innerText.includes('Done'); })()`, 10000);
+  ok('demo file streamed end-to-end: picker → paced progress → Done chip');
   const revealBtn = await js(`!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-reveal"]')`);
   if (!revealBtn) defect('finished transfer offers reveal-in-folder', 'dl-reveal missing');
   else ok('finished transfer offers reveal-in-folder');
@@ -353,8 +382,19 @@ async function main() {
   await js(`(() => { const b = [...document.querySelectorAll('[data-testid="download-tray"] button')].find((x) => x.textContent.includes('Clear finished')); if (!b) return false; b.click(); return true; })()`);
   await waitFor('tray clears after Clear finished', `!document.querySelector('[data-testid="download-tray"]')`, 8000);
   ok('Clear finished empties the download tray');
+  // Restore the DEFAULT limit to Unlimited so the real Archive download
+  // below runs at full speed (per-transfer state was already cleared).
+  await click('[data-testid="open-settings"]');
+  await waitFor('settings modal to reset the default limit', `!!document.querySelector('[data-testid="st-library"]')`);
+  await click('[data-testid="st-library"]');
+  await waitFor('default-limit select to reset', `!!document.querySelector('[data-testid="dl-limit-default"]')`);
+  await js(`(() => { const el = document.querySelector('[data-testid="dl-limit-default"]'); if (!el) return false; el.value = '0'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await wait(150);
+  await click('[data-testid="close-settings"]');
+  await waitFor('settings closed after resetting the default limit', `!document.querySelector('[data-testid="st-library"]')`);
+  ok('default download speed limit resets to Unlimited');
 
-  // ===== 10. Real Internet Archive item: file picker → genuine download =====
+  // ===== 11. Real Internet Archive item: file picker → genuine download =====
   // The demo step exercised the flow offline; this one proves the REAL
   // path end-to-end — a live Archive item's metadata drives the picker and
   // an actual file streams from archive.org to disk (SMOKE_MODE routes it

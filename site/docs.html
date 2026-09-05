@@ -87,8 +87,9 @@
                   <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
                   <tbody>
                     <tr><td><code>npm test</code></td><td>68 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder/restore. No window, no network.</td></tr>
+                    <tr><td><code>npm run test:resume</code></td><td>3 two-boot checks — boots the real app twice on one data dir over a slow Range-capable local server: starts a genuine download, quits mid-flight, relaunches, and asserts the transfer auto-resumed from its <code>.part</code> to the exact full size.</td></tr>
                     <tr><td><code>npm run test:electron</code></td><td>8 IPC checks through the real main process — search, favorites, health round-trip.</td></tr>
-                    <tr><td><code>npm run test:ui</code></td><td>32-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, drives a demo download and a real Internet Archive file (picker → genuine stream → tray) end-to-end.</td></tr>
+                    <tr><td><code>npm run test:ui</code></td><td>35-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, sets the default speed limit and watches a <i>paced</i> demo download (tray control raised mid-flight), then streams a real Internet Archive file end-to-end.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -186,8 +187,8 @@ module.exports = { engine: ENGINE, search };</code></pre>
                 <ul>
                   <li><b>Download the file, not just the magnet.</b> Internet Archive items open an in-app <b>file picker</b> and stream the chosen file straight to disk through your VPN/proxy route (host allowlist re-validated on every redirect). Official Ubuntu/Arch ISOs download directly from the mirror. Torrent-only sources still hand off to your torrent client.</li>
                   <li><b>Resume + a bounded queue.</b> At most two transfers stream at once — the rest queue FIFO in the downloads tray, queued rows get <b>up/down arrow buttons</b> to reorder what starts next. An interrupted download keeps its <code>.part</code>; retrying continues with an HTTP Range request instead of restarting. The save dialog remembers your last folder, and finished transfers reveal in the OS file manager (button or right-click).</li>
-                  <li><b>Per-download speed limit.</b> Each running transfer shows a small limit control (unlimited → 100&nbsp;KB/s → 256&nbsp;KB/s → 512&nbsp;KB/s → 1&nbsp;MB/s); it applies live, mid-stream. Bytes stream through a token bucket on the same proxy-aware path as search.</li>
-                  <li><b>Survives restarts.</b> In-flight downloads are persisted; next launch re-queues them automatically and continues from the <code>.part</code> — an interrupted file picks up where it stopped, no dialog needed.</li>
+                  <li><b>Per-download speed limit.</b> Each running transfer shows a small limit control (unlimited → 100&nbsp;KB/s → 256&nbsp;KB/s → 512&nbsp;KB/s → 1&nbsp;MB/s); it applies live, mid-stream. Bytes stream through a token bucket on the same proxy-aware path as search. Settings → Library also sets a <b>default limit</b> for every new download.</li>
+                  <li><b>Survives restarts.</b> In-flight downloads are persisted; next launch re-queues them automatically and continues from the <code>.part</code> — an interrupted file picks up where it stopped, no dialog needed. Verified end-to-end by a dedicated two-boot test that quits the real app mid-download and asserts the relaunch resumes it.</li>
                   <li><b>Demo cards are fully downloadable offline</b> — their download button opens the picker over locally-generated, clearly-labeled sample files, so picker → save → progress → done is testable with zero network (the real-window playtest now drives it).</li>
                   <li><b>Animated launch intro</b> — the splash ring/magnet draw now plays for a minimum showcase time before the main window appears.</li>
                 </ul>
@@ -229,7 +230,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
                 </ul>
               </div>
-              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 68 Node checks, 8 Electron IPC checks, and a 32-step real-window playtest (which now downloads a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab).</div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 68 Node checks, 8 Electron IPC checks, 3 two-boot resume checks, and a 35-step real-window playtest (which now paces a demo download and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab).</div>
             </div>
         </div>
       </div>

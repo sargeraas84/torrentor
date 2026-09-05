@@ -3,6 +3,7 @@ const React = require('react');
 const { useState, useEffect, useRef } = require('react');
 const { I, LogoMark } = require('./icons');
 const fmt = require('../../lib/format');
+const { LIMIT_PRESETS, limitOptionLabel } = require('../../lib/download-presets');
 
 const KIND_LABEL = { official: 'Official', community: 'Community', demo: 'Demo' };
 
@@ -402,9 +403,10 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
 
               <div style={{ marginTop: 16, color: '#5b6b84', fontSize: 11.5, lineHeight: 1.7, borderTop: '1px solid #152238', paddingTop: 14 }}>
                 <strong style={{ color: '#8494ab' }}>How the VPN option works.</strong> Torrentor never bundles or sells a VPN — run any VPN app or local
-                proxy (WireGuard client, OpenVPN, Tor, ssh -D…), then point this panel at it. Every outbound search request is routed through your
-                chosen HTTP/SOCKS route, and “Check my IP” confirms the exit address before you trust it. Note: Torrentor searches and indexes torrent
-                metadata — actual downloading happens in your own torrent client, whose traffic is governed by that client's own network settings.
+                proxy (WireGuard client, OpenVPN, Tor, ssh -D…), then point this panel at it. Every outbound request — engine queries and the direct
+                file downloads you start (Internet Archive files, official ISOs) — streams through your chosen HTTP/SOCKS route, and “Check my IP”
+                confirms the exit address before you trust it. Torrent/magnet hand-offs download in your own torrent client, whose traffic is governed
+                by that client's own network settings.
               </div>
               {msg && (
                 <div
@@ -424,9 +426,24 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
             </div>
           )}
 
-          {/* ============================ LIBRARY ============================ */}
+          {/* ======================== DOWNLOADS (in Library) ======================== */}
           {tab === 'library' && (
             <div>
+              <Row label="Default download speed limit" desc="Applied to every new direct download. Each transfer in the tray still has its own control — change it there and only that file is affected.">
+                <select
+                  data-testid="dl-limit-default"
+                  className="app-nodrag"
+                  style={inputStyle}
+                  value={String(prefs.downloadSpeedLimit || 0)}
+                  onChange={(e) => onSetPrefs({ downloadSpeedLimit: Number(e.target.value) })}
+                >
+                  {LIMIT_PRESETS.map((v) => (
+                    <option key={v} value={String(v)}>
+                      {limitOptionLabel(v)}
+                    </option>
+                  ))}
+                </select>
+              </Row>
               <Row label="Search history" desc={`${historyCount} stored queries, kept only on this machine.`}>
                 <button type="button" style={ghostBtn} onClick={onClearHistory}>
                   <I.trash size={13} /> Clear history
@@ -436,9 +453,10 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                 <span style={{ color: '#8494ab', fontSize: 12.5 }}>Stored under your app data folder</span>
               </Row>
               <p style={{ color: '#5b6b84', fontSize: 11.5, marginTop: 16, lineHeight: 1.6 }}>
-                Torrentor keeps no telemetry and makes no outbound calls other than the searches you run (through your configured route) and the
-                optional IP check. Query history lives in <code style={{ color: '#9db3cf' }}>prefs.json / history.json / favorites.json</code> next
-                to the app's user-data folder — delete them any time.
+                Direct downloads stream to the folder you pick and resume across restarts from their <code style={{ color: '#9db3cf' }}>.part</code>
+                file. Torrentor keeps no telemetry and makes no outbound calls other than the searches you run (through your configured route), the
+                optional IP check, and downloads you start. Query history lives in <code style={{ color: '#9db3cf' }}>prefs.json / history.json /
+                favorites.json</code> next to the app's user-data folder — delete them any time.
               </p>
             </div>
           )}
@@ -455,7 +473,8 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
               </div>
               <p>
                 Torrentor is an <strong style={{ color: '#b7c7dd' }}>indexer of indexes</strong>: it queries the sources you enable in parallel and
-                merges the results in one list, collapsing duplicates by infohash. It does not host, store or download any files.
+                merges the results in one list, collapsing duplicates by infohash. It hosts no content itself; the only files it writes are ones you
+                explicitly download (to the folder you choose) plus your local prefs/history/favorites.
               </p>
               <ul style={{ paddingLeft: 18, margin: '8px 0' }}>
                 <li>{enabledCount} of {engines.length} engines enabled · {engines.length} shipped in the allowlist</li>
