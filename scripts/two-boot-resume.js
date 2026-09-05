@@ -30,6 +30,15 @@
 //     came back in the reordered position with every limit intact, then
 //     that all four transfers completed to the exact full size.
 //
+// A fourth scenario proves SMART ORDER + LEARNED SPEEDS survive:
+//   boot #1 (phase 'smart-start')  — enables the smart-order pref, starts
+//     four genuine downloads with per-transfer limits, waits until both
+//     active streams have measured their own bandwidth (rateBps), quits.
+//   boot #2 (phase 'smart-verify') — relaunches and asserts the smart
+//     pref came back on, the resumed transfers still carry their learned
+//     per-file speeds, the restored queue order held under smart
+//     ordering, and all four transfers completed to the exact size.
+//
 // Both boots run the unmodified main.js + renderer over the real IPC
 // bridge; only the smoke-mode env (TORRENTOR_SMOKE) is set, which routes
 // the save dialog to a temp path and lets the local server host be
@@ -247,6 +256,49 @@ async function main() {
       if (dataDir3) {
         try {
           fs.rmSync(dataDir3, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
+    // ---- scenario 4: smart order + learned per-file speeds survive ----
+    let server4 = null;
+    let dataDir4 = null;
+    try {
+      const payload4 = makePayload();
+      server4 = await serveSlow(payload4, [], null);
+      const { port: port4 } = server4.address();
+      dataDir4 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-smart-boot-'));
+      const base4 = `http://127.0.0.1:${port4}/`;
+      const env4 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir4,
+        TORRENTOR_RESUME_BASE: base4,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+      };
+
+      // boot #1: enable smart order, four genuine downloads (two active,
+      // two queued), per-transfer limits on actives + a queued file, wait
+      // until each active measured its own speed, then quit mid-flight.
+      const s1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env4, { TORRENTOR_RESUME_PHASE: 'smart-start' }));
+      check(s1.code === 0, `smart boot #1 exited ${s1.code} — ${s1.err.slice(0, 200)}`);
+      check(/SMART_BOOT1_MEASURED/.test(s1.out), 'boot #1 measured both actives\' own bandwidth before quitting');
+
+      // boot #2: the smart-order pref must be back on, the resumed
+      // transfers must carry their learned per-file speeds, the restored
+      // queue order must hold under smart ordering, and all four must
+      // complete to the exact full size.
+      const s2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env4, { TORRENTOR_RESUME_PHASE: 'smart-verify' }));
+      check(s2.code === 0, `smart boot #2 exited ${s2.code} — ${s2.err.slice(0, 200)}`);
+      check(/SMART_BOOT2_QUEUE_OK/.test(s2.out), 'boot #2 restored smart order + learned speeds + queue order');
+      check(/SMART_BOOT2_DONE/.test(s2.out), 'boot #2 completed all four resumed transfers to the full size');
+      ok('smart order: enabled pref + learned per-file speeds + queue order survived a relaunch', 'smart=on, learned a=96KB/s b=128KB/s, queue order intact, all completed');
+    } finally {
+      if (server4) server4.close();
+      if (dataDir4) {
+        try {
+          fs.rmSync(dataDir4, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }

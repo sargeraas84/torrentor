@@ -7,6 +7,26 @@ const { nextPreset, limitLabel } = require('../../lib/download-presets');
 
 const api = window.torrentor;
 
+// Human words for the basis behind a smart-order ETA estimate (see
+// lib/downloads.js etaDetail). Rendered small on queued chips so the
+// scheduler's reasoning is visible instead of a magic number.
+const ETA_BASIS_WORDS = {
+  limit: 'limit',
+  measured: 'measured',
+  shared: 'live network',
+  baseline: 'assumed',
+};
+
+/** Compact clock text from fractional seconds: 0.56 → '1s', 95 → '1m 35s'. */
+function fmtEta(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
 // ---------------------------------------------------------------- modal
 
 /**
@@ -267,7 +287,16 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                 <div style={chipTitle}>{d.name}</div>
                 <div style={{ color: '#6f8199', fontSize: 10.5, marginTop: 1 }}>
                   {queued
-                    ? 'Queued — waiting for a free slot'
+                    ? smartOrder && d.etaBasis
+                      ? d.etaSeconds != null ? (
+                          <span data-testid="dl-eta" data-eta-sec={Math.round(d.etaSeconds)} data-basis={d.etaBasis}>
+                            Queued · ETA ~{fmtEta(d.etaSeconds)}{' '}
+                            <span style={{ color: '#5b6b84' }}>· {fmt.formatBytes(d.etaRateBps)}/s {ETA_BASIS_WORDS[d.etaBasis] || d.etaBasis}</span>
+                          </span>
+                        ) : (
+                          <span data-testid="dl-eta" data-basis="size-unknown">Queued · size unknown — starts after known-size files</span>
+                        )
+                      : 'Queued — waiting for a free slot'
                     : paused
                       ? 'Paused — partial kept · resume anytime'
                       : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}

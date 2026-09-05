@@ -1209,6 +1209,37 @@ async function main() {
     dm.setSmartOrder(false);
   });
 
+  ok('scheduler: snapshot exposes the smart-order reasoning on queued chips', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `eta-${n}.txt`);
+    const a = dm.startDownload('demo:content', mk('a'), null, { maxBytesPerSec: 51200 });
+    const b = dm.startDownload('demo:content', mk('b'), null, { maxBytesPerSec: 51200 });
+    // A limited readme: ETA = remaining bytes ÷ its exact enforced limit.
+    const c = dm.startDownload('demo:readme', mk('c'), null, { maxBytesPerSec: 1024 });
+    // An HTTP transfer whose size arrives only once it streams.
+    const d = dm.startDownload('http://127.0.0.1:9/eta-unknown.bin', mk('d'));
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    assert.strictEqual(c.status, 'queued');
+    assert.strictEqual(d.status, 'queued');
+    const chipOf = (id) => dm.snapshot().find((t) => t.id === id);
+    const cChip = chipOf(c.id);
+    assert.strictEqual(cChip.etaBasis, 'limit', 'an enforced limit is the rate basis');
+    assert.strictEqual(cChip.etaRateBps, 1024, 'rate = the limit');
+    const readmeBytes = dm.demoPayload('demo:readme').length;
+    assert.ok(Math.abs(cChip.etaSeconds - readmeBytes / 1024) < 1e-9, `ETA = remaining ÷ limit (${cChip.etaSeconds}s for ${readmeBytes} B)`);
+    const dChip = chipOf(d.id);
+    assert.strictEqual(dChip.etaBasis, 'size-unknown', 'unknown size → no estimate, honest basis');
+    assert.strictEqual(dChip.etaSeconds, null, 'no ETA while the size is unknown');
+    assert.ok(!('etaBasis' in chipOf(a.id)), 'active chips carry no eta fields');
+    dm.setSmartOrder(false);
+    assert.ok(!('etaBasis' in chipOf(c.id)), 'eta fields disappear when smart order is off');
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);

@@ -430,8 +430,18 @@ async function main() {
   // re-sorts queued files by estimated finish time) through the tray.
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order toggles on', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '1'`, 6000);
+  // With smart order on, each queued chip explains its position: the ETA
+  // and the speed basis behind it (these queued files inherited the
+  // 100 KB/s default limit, so the basis is 'limit').
+  const etaInfo = await waitFor(
+    'queued chips show ETA reasoning under smart order',
+    `(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta"]'); if (!el) return null; const basis = el.getAttribute('data-basis'); const eta = Number(el.getAttribute('data-eta-sec')); return eta >= 1 && eta <= 60 && ['limit', 'measured', 'shared', 'baseline'].includes(basis) ? { basis, eta } : null; })()`,
+    6000
+  );
+  ok('smart order explains each queued chip (ETA + speed basis)', `ETA ~${etaInfo.eta}s · basis ${etaInfo.basis}`);
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order toggles back off', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '0'`, 6000);
+  await waitFor('eta reasoning clears when smart order turns off', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta"]')`, 6000);
   ok('smart order toggle flips the queue scheduler (tray)');
   // Lift every limit so the seeded batch drains fast, then confirm the
   // Library view's per-source tallies picked up all completed transfers.

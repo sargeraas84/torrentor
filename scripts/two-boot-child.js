@@ -27,6 +27,16 @@
 // Phase 'order-verify' (boot #2): asserts the queue came back in the
 //   reordered position with every limit intact, then that all four
 //   transfers completed to the exact full size.
+//
+// Smart scenario (smart order + learned per-file speeds must survive):
+// Phase 'smart-start'  (boot #1): enables the smart-order pref, starts
+//   four genuine downloads (two active, two queued) with per-transfer
+//   limits, waits until each active has MEASURED its own bandwidth (its
+//   learned rateBps — equal to its enforced limit), then quits.
+// Phase 'smart-verify' (boot #2): asserts the smart-order pref survived,
+//   the resumed transfers still carry their learned per-file speeds, the
+//   restored queue keeps its (folder-batched, eta-stable) order under
+//   smart ordering, and all four complete to the exact full size.
 // ---------------------------------------------------------------------
 
 const { app, BrowserWindow } = require('electron');
@@ -171,6 +181,98 @@ async function phaseOrderVerify(win) {
   app.exit(0);
 }
 
+async function phaseSmartStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Enable smart ordering exactly like the tray toggle does (persisted).
+  await js(`window.torrentor.setSmartOrder(true)`);
+  const prefs = await js(`window.torrentor.getState().then((s) => s.prefs || {})`);
+  if (!prefs.smartOrder) throw new Error('smart order pref did not enable');
+  const urls = [0, 1, 2, 3].map((i) => `${BASE}smart-${i}.bin`);
+  const results = [];
+  for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
+  const ts = results.map((r) => r && r.transfer);
+  if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('smart seed transfers did not start cleanly');
+  const [a, b, c, d] = ts;
+  // a/b (active) at 96/128 KB/s, c (queued) at 256 KB/s. Each active's own
+  // measured bandwidth becomes exactly its limit after the first 500 ms
+  // progress tick — that learned per-file speed is what must survive the
+  // restart and feed the smart-order estimates next boot.
+  await js(`Promise.all([window.torrentor.setDownloadLimit(${a.id}, 98304), window.torrentor.setDownloadLimit(${b.id}, 131072), window.torrentor.setDownloadLimit(${c.id}, 262144)])`);
+  const measured = await waitFor(
+    'boot#1 both actives measured their own speed',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const A = list.find((x) => x.id === ${a.id});
+        const B = list.find((x) => x.id === ${b.id});
+        if (!A || !B || A.rateBps !== 98304 || B.rateBps !== 131072) return null;
+        return { a: A.rateBps, b: B.rateBps };
+      })()`),
+    20000
+  );
+  console.log(`SMART_BOOT1_MEASURED a=${measured.a} b=${measured.b} c=${262144} order=smart-2,smart-3`);
+  console.log('SMART_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phaseSmartVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Boot #2 must still be in smart order (the pref survived) AND the
+  // resumed transfers must carry the per-file speeds they measured before
+  // quitting — both prerequisites for the restored queue's folder-batched,
+  // eta-based ordering to mean anything.
+  const prefs = await js(`window.torrentor.getState().then((s) => s.prefs || {})`);
+  if (!prefs.smartOrder) throw new Error('smart order pref did not survive the restart');
+  const state = await waitFor(
+    'boot#2 restored the queue under smart order with learned speeds',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        if (mine.length < 4) return null;
+        const queued = mine.filter((t) => t.status === 'queued').sort((x, y) => x.queuePos - y.queuePos);
+        if (queued.length < 2) return null;
+        const byName = Object.fromEntries(mine.map((t) => [t.url.split('/').pop(), t]));
+        if (!byName['smart-0.bin'] || !byName['smart-1.bin'] || !byName['smart-2.bin'] || !byName['smart-3.bin']) return null;
+        return {
+          queuedOrder: queued.slice(0, 2).map((t) => t.url.split('/').pop()),
+          aLimit: byName['smart-0.bin'].maxBytesPerSec,
+          bLimit: byName['smart-1.bin'].maxBytesPerSec,
+          cLimit: byName['smart-2.bin'].maxBytesPerSec,
+          aRate: byName['smart-0.bin'].rateBps,
+          bRate: byName['smart-1.bin'].rateBps,
+          cEtaBasis: queued[0].etaBasis,
+          files: mine.map((t) => t.filePath),
+        };
+      })()`),
+    25000
+  );
+  if (state.queuedOrder[0] !== 'smart-2.bin' || state.queuedOrder[1] !== 'smart-3.bin') throw new Error(`queue order lost under smart order: ${JSON.stringify(state.queuedOrder)}`);
+  if (state.aLimit !== 98304 || state.bLimit !== 131072 || state.cLimit !== 262144) throw new Error(`limits lost: a=${state.aLimit} b=${state.bLimit} c=${state.cLimit}`);
+  if (state.aRate !== 98304 || state.bRate !== 131072) throw new Error(`learned per-file speeds lost: a=${state.aRate} b=${state.bRate}`);
+  console.log('SMART_BOOT2_QUEUE_OK smart=on learned=a:98304,b:131072 order=smart-2,smart-3');
+  await waitFor(
+    'boot#2 all four resumed transfers complete',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        return mine.length === 4 && mine.every((t) => t.status === 'done') ? mine : null;
+      })()`),
+    120000
+  );
+  const sizes = state.files.map((fp) => (fs.existsSync(fp) ? fs.statSync(fp).size : -1));
+  if (sizes.some((s) => s !== EXPECTED)) throw new Error(`final sizes ${JSON.stringify(sizes)} !== ${EXPECTED}`);
+  console.log('SMART_BOOT2_DONE bytes=' + EXPECTED);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
+}
+
 async function phasePauseStart(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const started = await js(`window.torrentor.downloadFile(${JSON.stringify(DL_URL)})`);
@@ -270,6 +372,8 @@ async function main() {
     else if (PHASE === 'pause-verify') await phasePauseVerify(win);
     else if (PHASE === 'order-start') await phaseOrderStart(win);
     else if (PHASE === 'order-verify') await phaseOrderVerify(win);
+    else if (PHASE === 'smart-start') await phaseSmartStart(win);
+    else if (PHASE === 'smart-verify') await phaseSmartVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));
