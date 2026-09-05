@@ -15,8 +15,10 @@ everything into a single list — **deduped by infohash** — with source badges
 per-source progress, seeders/size/date filtering and one-click magnet handling.
 Every outbound request runs in the main process and honors your **VPN/proxy route**.
 
-> Torrentor is *search software*. It stores no files and downloads nothing — it finds
-> magnet links and `.torrent` URLs, then hands them to your own torrent client.
+> Torrentor is *search-first software*. Torrent/magnet results hand off to your own
+> torrent client; for sources that expose plain files over HTTPS — Internet Archive
+> items and official Linux ISOs — cards can also **download the file directly** into
+> a folder you pick (streamed in main through the same proxy-aware client).
 > Please only download and share content you are legally entitled to.
 
 ---
@@ -29,6 +31,7 @@ Every outbound request runs in the main process and honors your **VPN/proxy rout
 | 🔀 Smart merge | Results are deduped by infohash (duplicates from different sources collapse into one card with an *"also on …"* badge); a watchdog guarantees no engine can hang a search |
 | 🗂 Rich cards | Category, size, seeders/leechers/downloads, age, infohash preview, source badges, **Demo** labeling on synthetic entries; Archive items carry **creator — year** and a poster |
 | 🧲 Magnet actions | Copy magnet · Open in torrent client (OS hand-off) · Copy `.torrent` URL · Download `.torrent` · Open source page — all scheme-validated in main |
+| ⬇️ Direct download | Archive items open an **in-app file picker** and stream the chosen file to disk; Ubuntu/Arch official ISOs download straight from the mirror. Hosts are allowlisted, every redirect hop re-validated, progress lives in a downloads tray — no torrent client needed for file-based sources. Downloads are **resumable**: at most two stream at once (the rest queue FIFO), an interrupted file continues from its partial via HTTP Range, the save dialog **remembers your folder**, and finished transfers offer **reveal in folder** (button or right-click). Demo cards exercise the whole flow **offline** with clearly-labeled sample files |
 | 🛡 VPN / proxy route | Route **every** search request through your own VPN/proxy (HTTP, SOCKS4/5, auth supported) with a one-click **Check my IP** verification (settings → VPN & privacy) |
 | 🩺 Source health | Settings → Search sources probes every real source with a known-good query and shows healthy / failing per engine — silent regressions (site redesigns that return 0 results) appear as red dots, not green chips |
 | 🔖 Local library | Favorites + recent searches stored as plain JSON in the app-data folder. No account, no cloud, no telemetry |
@@ -45,8 +48,10 @@ network. Default sources are **legal-friendly**, so a fresh install is useful an
    whole flow works with zero network. Every card carries a **Demo** badge and its
    infohash is synthetic — treat it as a UI fixture, not a download.
 2. **Internet Archive** — real full-text search of Archive.org's catalog
-   (public-domain & CC media, books, software, data; tens of millions of items, nearly
-   all with official `_archive.torrent` downloads) via its public `advancedsearch` API.
+   (public-domain & CC media, books, software, data; tens of millions of items) via its
+   public `advancedsearch` API. Every item card offers a **file picker + direct
+   download** (no torrent client needed); the official `_archive.torrent` is also one
+   click away.
 3. **Linux releases** — official Ubuntu & Debian ISO `.torrent` files pulled straight
    from the projects' release pages.
 4. **Arch Linux** — official Arch Linux monthly ISO torrents (infohash, magnet and
@@ -107,10 +112,10 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 49 pure-Node checks (no window, no network)
+npm test           # 62 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:ui    # drives the real window (real engines): search, favorites,
-                    #   VPN check, paging, thumbnails — needs network
+                    #   VPN check, paging, thumbnails, direct downloads — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 
@@ -129,7 +134,7 @@ attached. Verify the four artifacts, then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.3.0 && git push origin v1.3.0
+git tag v1.4.0 && git push origin v1.4.0
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`
@@ -152,7 +157,8 @@ torrentor/
 ├── lib/
 │   ├── orchestrator.js     # parallel fan-out, live snapshots, dedupe/merge by infohash, sort
 │   ├── health.js           # per-source health self-test (known-good probe queries)
-│   ├── network.js          # proxy/VPN-aware HTTP client (main only) + exit-IP check
+│   ├── network.js          # proxy/VPN-aware HTTP client (main only) + streaming downloader
+│   ├── downloads.js        # direct-download manager: transfers, Archive item file picker
 │   ├── magnet.js           # magnet build/parse, infohash normalization (hex + base32)
 │   ├── format.js           # bytes/time/category/seed helpers (shared with tests)
 │   └── storage.js          # JSON persistence: prefs (incl. proxy), history, favorites
@@ -195,3 +201,6 @@ torrentor/
 - Sources are fetched politely (UA header, short timeouts, small page caps, cached
   listings) and each engine fails *soft* — an unreachable source never blocks the
   others.
+- Direct downloads only ever write bytes from allowlisted source hosts (Archive.org +
+  the official distro mirrors), re-checked after every redirect — the app never
+  downloads from torrent peers itself; that stays in your torrent client.

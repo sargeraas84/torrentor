@@ -14,10 +14,22 @@ const path = require('path');
 const fs = require('fs');
 
 let passed = 0;
+let failures = 0;
+// ok() accepts sync and async checks. Async ones are chained onto this
+// promise so they run in call order and are drained before the summary
+// (and before any shared-file cleanup) — never as racing background tasks.
+let serial = Promise.resolve();
 function ok(name, fn) {
-  fn();
-  passed++;
-  console.log(`  ✓ ${name}`);
+  serial = serial.then(async () => {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ✓ ${name}`);
+    } catch (err) {
+      failures++;
+      console.error(`  ✗ ${name} — ${err && err.message ? err.message : err}`);
+    }
+  });
 }
 
 async function main() {
@@ -715,6 +727,212 @@ async function main() {
   await new Promise((r) => setTimeout(r, 350)); // let debounced writes settle
   fs.rmSync(tmp, { recursive: true, force: true });
 
+  // --------------------------- direct downloads -------------------------
+  const { sanitizeItemFiles, suggestedName } = require('../lib/downloads');
+  const dlNetwork = require('../lib/network');
+  dlNetwork.setProxyConfig({ enabled: false }); // direct route for the server test
+
+  ok('download host allowlist (exact + subdomain, never lookalikes)', () => {
+    assert.strictEqual(dlNetwork.hostAllowed('archive.org'), true);
+    assert.strictEqual(dlNetwork.hostAllowed('ia600000.us.archive.org'), true, 'archive.org subdomain allowed');
+    assert.strictEqual(dlNetwork.hostAllowed('releases.ubuntu.com'), true);
+    assert.strictEqual(dlNetwork.hostAllowed('archive.archlinux.org'), true);
+    assert.strictEqual(dlNetwork.hostAllowed('example.com'), false);
+    assert.strictEqual(dlNetwork.hostAllowed('archive.org.evil.com'), false, 'suffix-lookalike denied');
+    assert.strictEqual(dlNetwork.hostAllowed('archive-org.com'), false);
+    assert.strictEqual(dlNetwork.hostAllowed(''), false);
+    assert.strictEqual(dlNetwork.hostAllowed(null), false);
+    assert.strictEqual(dlNetwork.hostAllowed('127.0.0.1', ['127.0.0.1', 'example.com']), true, 'explicit override list works');
+    assert.strictEqual(dlNetwork.hostAllowed('archive.org', ['127.0.0.1']), false);
+  });
+
+  ok('download suggestedName: last segment, decoded, sanitized', () => {
+    assert.strictEqual(suggestedName('https://archive.org/download/foo_bar/My%20File%20(1).iso'), 'My File (1).iso');
+    assert.strictEqual(suggestedName('https://x.example/dir/evil%3Fname%3A.bin'), 'evil_name_.bin');
+    assert.strictEqual(suggestedName('https://x.example/'), 'download');
+    assert.strictEqual(suggestedName('not a url'), 'download');
+  });
+
+  ok('item file sanitizer drops Archive bookkeeping junk + caps size', () => {
+    const files = [
+      { name: '__ia_thumb.jpg', size: 100 },
+      { name: 'movie_archive.torrent', size: 500 },
+      { name: 'movie_files.xml', size: 900 },
+      { name: 'movie_meta.xml', size: 900 },
+      { name: 'movie_reviews.xml', size: 900 },
+      { name: 'big.mp4', size: 1000, format: 'MPEG4' },
+      { name: 'cover.png', size: 50, format: 'PNG' },
+      { name: 'empty.dat', size: 0 },
+      { name: 'huge.iso', size: 101 * 1024 ** 3 },
+    ];
+    const out = sanitizeItemFiles(files, 'some_item');
+    assert.deepStrictEqual(out.map((f) => f.name), ['big.mp4', 'cover.png'], 'junk + zero + >100GB dropped');
+    assert.strictEqual(out[0].url, 'https://archive.org/download/some_item/big.mp4');
+    assert.strictEqual(out[0].size, 1000);
+    assert.strictEqual(sanitizeItemFiles(files, '../evil').length, 0, 'item id with slashes refused');
+    assert.strictEqual(sanitizeItemFiles([{ name: 'a b+c.mp3', size: 9, format: 'MP3' }], 'x')[0].url, 'https://archive.org/download/x/a%20b%2Bc.mp3', 'name URL-encoded');
+  });
+
+  ok('files.xml manifest parser handles child/attr sizes + junk', () => {
+    const { parseFilesXml } = require('../lib/downloads');
+    const xml =
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<files>' +
+      '<file name="01 - chapter.mp3" source="original">' +
+      '<format>VBR MP3</format><size>1234567</size>' +
+      '</file>' +
+      '<file name="cover.jpg" size="4321" format="JPEG" />' +
+      '<file name="no-size.txt" />' +
+      '<file />' +
+      '</files>';
+    const out = parseFilesXml(xml);
+    assert.strictEqual(out.length, 3);
+    assert.strictEqual(out[0].name, '01 - chapter.mp3');
+    assert.strictEqual(out[0].size, 1234567, 'child <size> element read');
+    assert.strictEqual(out[1].name, 'cover.jpg');
+    assert.strictEqual(out[1].size, 4321, 'size attribute read');
+    assert.strictEqual(out[2].name, 'no-size.txt');
+    assert.strictEqual(out[2].size, null);
+  });
+
+  ok('streamToFile downloads through a real local server with byte progress', async () => {
+    const http = require('http');
+    const payload = Buffer.alloc(256 * 1024);
+    for (let i = 0; i < payload.length; i++) payload[i] = i % 251;
+    const server = http.createServer((_req, res) => {
+      res.setHeader('content-length', payload.length);
+      res.end(payload);
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    const dest = path.join(os.tmpdir(), `torrentor-dl-test-${Date.now()}.bin`);
+    const bytes = [];
+    let total = null;
+    try {
+      const out = await dlNetwork.streamToFile({
+        url: `http://127.0.0.1:${port}/payload.bin`,
+        destPath: dest,
+        allowHosts: ['127.0.0.1'],
+        onBytes: (received, t) => {
+          bytes.push(received);
+          total = t;
+        },
+      });
+      assert.strictEqual(out.status, 200);
+      assert.strictEqual(out.bytes, payload.length);
+      assert.strictEqual(total, payload.length, 'content-length surfaced');
+      assert.strictEqual(fs.readFileSync(dest).equals(payload), true, 'file bytes match payload');
+      assert.ok(bytes.length >= 1 && bytes[bytes.length - 1] === payload.length, 'progress reported');
+    } finally {
+      server.close();
+      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+    }
+  });
+
+  ok('streamToFile refuses non-allowlisted hosts and aborts cleanly', async () => {
+    const http = require('http');
+    let hit = 0;
+    const server = http.createServer((_req, res) => res.end('x'));
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    const dest = path.join(os.tmpdir(), `torrentor-dl-deny-${Date.now()}.bin`);
+    try {
+      await assert.rejects(
+        dlNetwork.streamToFile({ url: `http://127.0.0.1:${port}/x.bin`, destPath: dest, allowHosts: ['example.com'] }),
+        /not allowed/
+      );
+      assert.strictEqual(hit, 0);
+      const ac = new AbortController();
+      ac.abort();
+      await assert.rejects(
+        dlNetwork.streamToFile({ url: `http://127.0.0.1:${port}/y.bin`, destPath: dest, allowHosts: ['127.0.0.1'], signal: ac.signal }),
+        /cancelled/
+      );
+      assert.strictEqual(fs.existsSync(dest), false, 'partial file removed on abort');
+    } finally {
+      server.close();
+      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+    }
+  });
+
+  // ------------------------- download manager -------------------------
+  const dm = require('../lib/downloads');
+  const dmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-dlmgr-'));
+
+  ok('demo files: picker rows, labels, clearly-marked payload', () => {
+    const files = dm.demoFiles();
+    assert.strictEqual(files.length, 2);
+    assert.deepStrictEqual(files.map((f) => f.name), ['demo-content.txt', 'about-this-demo.txt']);
+    assert.ok(files.every((f) => /^demo:/.test(f.url)), 'demo: urls, never a network host');
+    assert.strictEqual(files[0].format, 'Demo text');
+    assert.strictEqual(dm.demoLabel('demo:readme'), 'about-this-demo.txt');
+    const head = dm.demoPayload('demo:readme').toString('utf8').slice(0, 300);
+    assert.ok(head.includes('TORRENTOR DEMO FILE') && head.includes('NOT real content'), 'payload is clearly labeled as synthetic');
+  });
+
+  const waitFor = async (cond, ms = 2500) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      if (cond()) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error('timed out waiting for download state');
+  };
+
+  ok('scheduler: MAX_ACTIVE cap queues the third, FIFO drains it', async () => {
+    dm.clearFinished();
+    const seen = [];
+    const watch = (t, kind) => seen.push(`${t.id}:${kind}`);
+    const mk = (n) => path.join(dmDir, `queue-${n}.txt`);
+    const a = dm.startDownload('demo:content', mk('a'), watch);
+    const b = dm.startDownload('demo:content', mk('b'), watch);
+    const c = dm.startDownload('demo:readme', mk('c'), watch);
+    assert.ok(dm.MAX_ACTIVE === 2, 'suite assumes a 2-slot queue');
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    assert.strictEqual(c.status, 'queued', 'third transfer waits for a slot');
+    assert.ok(seen.includes(`${c.id}:queued`), 'queued transition broadcast');
+    await waitFor(() => dm.getDownload(c.id) && dm.getDownload(c.id).status === 'done');
+    const snap = dm.snapshot();
+    const my = snap.filter((t) => t.filePath.startsWith(dmDir));
+    assert.strictEqual(my.filter((t) => t.status === 'done').length, 3, 'all three completed');
+    assert.ok(seen.includes(`${c.id}:start`), 'queued transfer started once a slot freed');
+    for (const n of ['a', 'b', 'c']) assert.ok(fs.readFileSync(mk(n)).length > 0, `file ${n} written`);
+    dm.clearFinished();
+  });
+
+  ok('scheduler: cancelling a queued transfer removes it without side effects', async () => {
+    dm.clearFinished();
+    const a = dm.startDownload('demo:content', path.join(dmDir, 'cancel-a.txt'));
+    const b = dm.startDownload('demo:content', path.join(dmDir, 'cancel-b.txt'));
+    const c = dm.startDownload('demo:readme', path.join(dmDir, 'cancel-c.txt'));
+    const before = dm.snapshot().filter((t) => t.filePath.startsWith(dmDir)).length;
+    const gone = dm.cancelDownload(c.id);
+    assert.ok(gone && gone.id === c.id, 'queued cancel returns the entry');
+    assert.ok(!dm.snapshot().some((t) => t.id === c.id), 'queued entry removed from the list');
+    await waitFor(() => dm.getDownload(b.id) && dm.getDownload(b.id).status === 'done');
+    const after = dm.snapshot().filter((t) => t.filePath.startsWith(dmDir)).length;
+    assert.strictEqual(after, before - 1, 'only the cancelled one is gone');
+    assert.ok(!fs.existsSync(path.join(dmDir, 'cancel-c.txt')), 'cancelled-queued file never written');
+    dm.clearFinished();
+  });
+
+  ok('scheduler: retry re-queues a failed transfer under its id (resume hook)', async () => {
+    dm.clearFinished();
+    const dest = path.join(dmDir, 'retry-fail.bin');
+    const t0 = dm.startDownload('http://127.0.0.1:9/never.bin', dest); // host not allowlisted → immediate error
+    await waitFor(() => dm.getDownload(t0.id) && dm.getDownload(t0.id).status === 'error');
+    assert.ok(!fs.existsSync(dest), 'no final file on failure');
+    const retried = dm.retryDownload(t0.id);
+    assert.ok(retried && retried.id === t0.id, 'retry keeps the original id (and destination)');
+    assert.ok(retried.status === 'downloading' || retried.status === 'queued', 'retry leaves the terminal state');
+    assert.strictEqual(retried.error, null);
+    // The failure is deterministic, so it errors again — that's fine; the
+    // point is the scheduler accepted it back with its .part preserved.
+    await waitFor(() => dm.getDownload(t0.id) && dm.getDownload(t0.id).status === 'error');
+    dm.clearFinished();
+  });
+
   // --------------------------- network helpers -------------------------
   const network = require('../lib/network');
   ok('validateProxyConfig', () => {
@@ -727,7 +945,19 @@ async function main() {
   network.setProxyConfig({ enabled: false });
   network.setProxyConfig({ enabled: false }); // idempotent no-op
 
+  // Drain async checks (serialized, so call order is preserved), then clean
+  // up the download-manager scratch dir now that its writes have finished.
+  await serial;
+  try {
+    fs.rmSync(dmDir, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
   console.log(`\n${passed} checks passed ✔\n`);
+  if (failures) {
+    console.error(`✗ ${failures} of ${passed + failures} checks FAILED`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {

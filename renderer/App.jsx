@@ -6,6 +6,7 @@ const EngineChips = require('./components/EngineChips');
 const ResultCard = require('./components/ResultCard');
 const { FavoritesView, HistoryView } = require('./components/LibraryView');
 const SettingsModal = require('./components/SettingsModal');
+const { FilesModal, DownloadTray } = require('./components/Downloads');
 const { I, CATEGORY_META } = require('./components/icons');
 const { sortResults } = require('../lib/orchestrator');
 
@@ -49,6 +50,9 @@ function App() {
   const [archiveHasMore, setArchiveHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [retryingId, setRetryingId] = useState(null);
+  // Direct downloads: transfer tray list + the open Archive file picker.
+  const [downloads, setDownloads] = useState([]);
+  const [filesItem, setFilesItem] = useState(null);
 
   const seqRef = useRef(0);
   const toastTimer = useRef(null);
@@ -60,6 +64,49 @@ function App() {
   }, []);
 
   const enabledIds = () => engines.filter((e) => e.enabled).map((e) => e.id);
+
+  // ----- direct downloads -------------------------------------------------
+  const startDirectDownload = async (result) => {
+    if (!result || !result.fileUrl) return;
+    try {
+      const res = await api.downloadFile(result.fileUrl);
+      if (res && res.cancelled) return; // user dismissed the save dialog
+      if (res && res.transfer) showToast('Download started');
+    } catch (err) {
+      showToast(`Download failed — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
+  const cancelDl = async (id) => {
+    try {
+      await api.cancelDownload(id);
+    } catch {
+      /* tray updates via the broadcast anyway */
+    }
+  };
+  const clearDl = async () => {
+    try {
+      const list = await api.clearDownloads();
+      setDownloads(list || []);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  const retryDl = async (id) => {
+    try {
+      const list = await api.retryDownload(id);
+      setDownloads(list || []);
+      showToast('Resuming download…');
+    } catch (err) {
+      showToast(`Resume failed — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
+  const revealDl = async (id) => {
+    try {
+      await api.revealDownload(id);
+    } catch (err) {
+      showToast(`Can't reveal — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -95,6 +142,13 @@ function App() {
     });
     const unsubHealth = api.onHealthProgress((list) => setHealth(list || []));
     const unsubMax = api.onMaximized(setMaxed);
+    const unsubDl = api.onDownloadsChanged(({ snapshot }) => setDownloads(snapshot || []));
+    api
+      .getDownloads()
+      .then((list) => setDownloads(list || []))
+      .catch(() => {
+        /* non-fatal */
+      });
     api
       .exploreTiles()
       .then((tiles) => setExploreTiles(Array.isArray(tiles) ? tiles : []))
@@ -105,6 +159,7 @@ function App() {
       unsubProgress();
       unsubHealth();
       unsubMax();
+      unsubDl();
     };
   }, []);
 
@@ -500,7 +555,15 @@ function App() {
           {view === 'search' && shown.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               {shown.map((r) => (
-                <ResultCard key={r.key} result={r} isFav={favKeys.has(r.key)} onToast={showToast} onFavToggle={toggleFavorite} />
+                <ResultCard
+                  key={r.key}
+                  result={r}
+                  isFav={favKeys.has(r.key)}
+                  onToast={showToast}
+                  onFavToggle={toggleFavorite}
+                  onDownload={startDirectDownload}
+                  onFiles={(item) => setFilesItem(item)}
+                />
               ))}
             </div>
           )}
@@ -525,6 +588,10 @@ function App() {
           {view === 'history' && <HistoryView history={history} onRun={(q) => runSearch(q)} onClear={clearHistory} />}
         </div>
       </div>
+
+      {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
+
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} />
 
       {settingsOpen && (
         <SettingsModal

@@ -76,10 +76,15 @@ function parseSize(text) {
 }
 
 async function fetchCached(url, ctx) {
-  const hit = cache.get(url);
+  // Cache only real-network calls. Test suites stub ctx.network and must
+  // stay hermetic per case; a stubbed context never shares the live cache
+  // (two consecutive stub tests would otherwise bleed into each other).
+  const realNetwork = require('../lib/network');
+  const isReal = !!ctx && !!ctx.network && ctx.network === realNetwork;
+  const hit = isReal ? cache.get(url) : null;
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.text;
   const text = await ctx.network.getText(url, { timeoutMs: 7000, maxBytes: 2 * 1024 * 1024, signal: ctx.signal });
-  cache.set(url, { at: Date.now(), text });
+  if (isReal) cache.set(url, { at: Date.now(), text });
   return text;
 }
 
@@ -211,6 +216,12 @@ async function search(query, ctx) {
         category: 'apps',
         sizeBytes: t.size,
         uploadedAt: null,
+        // Ubuntu hosts the ISO next to its .torrent in the same directory,
+        // so the direct file URL is the torrent URL minus the suffix.
+        // (Debian's bt-cd/ dirs hold only torrents — no direct ISO there.)
+        fileUrl: /^https:\/\/releases\.ubuntu\.com\//i.test(t.url)
+          ? t.url.replace(/\.torrent$/i, '')
+          : null,
         torrentUrl: t.url,
         pageUrl: t.url,
         relevance,

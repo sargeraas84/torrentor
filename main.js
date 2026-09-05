@@ -13,9 +13,12 @@
 // through the typed bridge in preload.js.
 // =====================================================================
 
-const { app, BrowserWindow, Tray, Menu, clipboard, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, clipboard, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 const network = require('./lib/network');
+const downloads = require('./lib/downloads');
 const { Storage } = require('./lib/storage');
 const registry = require('./indexers/registry');
 const { runSearch, keyOf, mergeIncremental, ENGINE_TIMEOUT_MS } = require('./lib/orchestrator');
@@ -42,6 +45,8 @@ const dataDir = () => (SMOKE_MODE && process.env.TORRENTOR_DATA_DIR) || app.getP
 
 let mainWindow = null;
 let splashWindow = null; // animated launcher shown while the UI boots
+let splashShownAt = 0; // when the launcher appeared (for the min intro time)
+const SPLASH_MIN_MS = 2600; // let the logo intro visibly play before handoff
 let tray = null; // taskbar/menu-bar presence with Show/Quit actions
 let mainReady = false; // main window rendered and safe to show
 let storage = null;
@@ -108,6 +113,7 @@ function createSplash() {
   });
   splashWindow.loadFile(path.join(__dirname, 'resources', 'splash.html'));
   splashWindow.once('ready-to-show', () => {
+    splashShownAt = Date.now();
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.show();
   });
   splashWindow.on('closed', () => {
@@ -189,8 +195,14 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainReady = true;
     if (SMOKE_MODE) return; // the smoke harness drives the window itself
-    closeSplash();
-    mainWindow.show();
+    // Hold the handoff until the animated logo intro has had its moment —
+    // on a fast machine the UI is ready in under a second, which would cut
+    // the ring/magnet draw off before it plays.
+    const elapsed = splashShownAt ? Date.now() - splashShownAt : SPLASH_MIN_MS;
+    setTimeout(() => {
+      closeSplash();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+    }, Math.max(0, SPLASH_MIN_MS - elapsed));
   });
 
   mainWindow.on('maximize', () => broadcast('win:maximized', true));
@@ -219,6 +231,11 @@ function broadcast(channel, payload) {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send(channel, payload);
   }
+}
+
+/** Broadcast the current download list to every window. */
+function broadcastDownloads(kind, id) {
+  broadcast('downloads:changed', { snapshot: downloads.snapshot(), kind: kind || 'changed', id: id || null });
 }
 
 // ------------------------------------------------------------ IPC helpers
@@ -415,6 +432,91 @@ function registerIpc() {
   handle('app:openExternal', ({ url }) => {
     if (!isSafeExternalUrl(url)) throw new Error('That link type is not allowed.');
     shell.openExternal(String(url));
+    return true;
+  });
+
+  // ----------------------------------------------- direct downloads
+
+  handle('downloads:list', () => downloads.snapshot());
+
+  handle('downloads:clear', () => {
+    downloads.clearFinished();
+    return downloads.snapshot();
+  });
+
+  // List the files a result offers for direct download. Archive items
+  // fetch their real file list (metadata API with a *_files.xml fallback);
+  // the Demo engine returns locally-generated sample files so the whole
+  // picker → download flow is exercisable offline.
+  handle('download:itemFiles', ({ sourceId, itemId }) => {
+    if (sourceId === 'demo-curated') return downloads.demoFiles();
+    if (sourceId !== 'archive-org') throw new Error('Direct files are not available for this source.');
+    return downloads.itemFiles(String(itemId || ''));
+  });
+
+  // Stream a content URL to a user-chosen path. The host allowlist is
+  // enforced here AND on every redirect hop inside streamToFile; demo:
+  // URLs are local synthetic payloads and never touch the network. The
+  // chosen folder is remembered (prefs.downloadDir) so the next save
+  // dialog opens there — resuming an interrupted file lands on the same
+  // .part and continues with an HTTP Range request.
+  handle('download:start', async ({ url }, event) => {
+    const href = String(url || '').trim();
+    const isDemo = /^demo:/i.test(href);
+    if (!isDemo) {
+      let parsed;
+      try {
+        parsed = new URL(href);
+      } catch {
+        throw new Error('Invalid download URL.');
+      }
+      if (!/^https?:$/.test(parsed.protocol)) throw new Error('Only http(s) downloads are supported.');
+      if (!network.hostAllowed(parsed.hostname)) throw new Error('That download host is not on the allowlist.');
+    }
+
+    const label = isDemo ? downloads.demoLabel(href) : downloads.suggestedName(href);
+    let destPath;
+    if (SMOKE_MODE) {
+      destPath = path.join(os.tmpdir(), `torrentor-dl-${Date.now()}-${label}`);
+    } else {
+      const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+      const dir = storage.getPrefs().downloadDir || undefined;
+      const res = await dialog.showSaveDialog(win, {
+        title: 'Save download',
+        defaultPath: dir ? path.join(dir, label) : label,
+      });
+      if (res.canceled || !res.filePath) return { cancelled: true, transfer: null };
+      destPath = res.filePath;
+      try {
+        storage.updatePrefs({ downloadDir: path.dirname(destPath) });
+      } catch {
+        /* remembering the folder is best-effort */
+      }
+    }
+
+    const transfer = downloads.startDownload(href, destPath, (entry, kind) => broadcastDownloads(kind, entry.id));
+    return { cancelled: false, transfer };
+  });
+
+  // Resume/retry a finished transfer (error or cancelled): it keeps its
+  // already-approved destination and the .part continues via Range.
+  handle('download:retry', ({ id }) => {
+    downloads.retryDownload(Number(id), (entry, kind) => broadcastDownloads(kind, entry.id));
+    return downloads.snapshot();
+  });
+
+  handle('download:cancel', ({ id }) => {
+    downloads.cancelDownload(Number(id));
+    broadcastDownloads('cancelled', Number(id));
+    return downloads.snapshot();
+  });
+
+  // Open the OS file manager with the finished transfer selected.
+  handle('downloads:reveal', ({ id }) => {
+    const t = downloads.getDownload(Number(id));
+    if (!t || t.status !== 'done' || !t.filePath) throw new Error('Nothing to reveal yet.');
+    if (!fs.existsSync(t.filePath)) throw new Error('That file is no longer on disk.');
+    shell.showItemInFolder(t.filePath);
     return true;
   });
 }

@@ -154,15 +154,15 @@
           <div class="rv" data-d="2">
             <p class="lead">Torrentor is a <b>search engine for those recipes</b>. Type one query and it asks a handful of trusted libraries at once — Internet Archive, official Ubuntu &amp; Debian releases, Arch Linux, and more — then merges everything into one clean list of results, ranked by how well they match.</p>
             <p class="lead">Most torrent search engines point you at whatever is being shared, with no idea where it came from or whether it can be trusted. Torrentor only searches sources that <b>publish torrents on purpose</b> — so every card is a real file with a real size, from a source you can name.</p>
-            <p class="lead">It doesn't download anything itself, and it doesn't hide behind an account or track you. Torrentor finds the recipe; your torrent client does the downloading, over the peer-to-peer network, with no central server in the middle.</p>
+            <p class="lead">It never downloads <i>through peers</i>, and it doesn't hide behind an account or track you. For recipe results (torrents/magnets), your torrent client does the peer-to-peer downloading. For sources that host plain files on a server — Internet Archive items and official Linux ISOs — Torrentor can fetch the file directly, streamed through your configured VPN/proxy route.</p>
           </div>
           <div class="rv" data-d="3">
             <div class="bezel"><div class="core">
               <h3>Three things to know</h3>
               <ol class="steps">
-                <li><div><b>It's a catalog, not a downloader</b><p>Torrentor finds the recipe (the <code>.torrent</code> or magnet link). Your torrent client — qBittorrent, Transmission, anything — does the actual downloading.</p></div></li>
+                <li><div><b>Peers stay in your torrent client</b><p>Torrentor finds the recipe (the <code>.torrent</code> or magnet link) and hands it to your client — qBittorrent, Transmission, anything — which does the peer-to-peer downloading. When a source hosts the file directly (Archive items, official ISOs), the app streams it over HTTPS instead.</p></div></li>
                 <li><div><b>One query, many libraries</b><p>Search <i>ubuntu</i> and you get the official Ubuntu ISO torrents, Archive copies of Ubuntu magazines, and more — merged, deduped, relevance first.</p></div></li>
-                <li><div><b>Honest by design</b><p>No scraped pirate indexes, no fabricated results, no sponsored cards. If a result doesn't genuinely match your query, you won't see it.</p></div></li>
+                <li><div><b>Honest by design</b><p>No fabricated results, no sponsored cards. The Pirate Bay is available as an <b>opt-in</b> source — off by default, adult categories always filtered. If a result doesn't genuinely match your query, you won't see it.</p></div></li>
               </ol>
             </div></div>
           </div>

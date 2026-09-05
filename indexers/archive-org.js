@@ -121,6 +121,9 @@ function normalizeItem(doc, query) {
     uploadedAt,
     downloads,
     infohash: null, // not exposed by the API — dedupe key is source-scoped
+    // The item bundles real files over plain HTTPS → the card offers an
+    // in-app file picker + direct download (torrentUrl stays as-is).
+    fileSource: 'archive-item',
     torrentUrl: `https://archive.org/download/${encodeURIComponent(id)}/${encodeURIComponent(id)}_archive.torrent`,
     pageUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
     thumbnail: `https://archive.org/services/img/${encodeURIComponent(id)}?w=200`,

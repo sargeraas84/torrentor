@@ -99,6 +99,8 @@ async function search(query, ctx) {
         uploadedAt: r.created,
         infohash: r.infoHash,
         magnet: r.magnet,
+        // Official ISO mirror — same filename as the torrent payload.
+        fileUrl: `https://archive.archlinux.org/iso/${encodeURIComponent(r.version)}/${encodeURIComponent(r.fileName)}`,
         torrentUrl: r.torrentUrl,
         pageUrl: 'https://archlinux.org/releng/releases/',
         relevance,

@@ -50,6 +50,11 @@ function normalizeResult(partial, engine) {
     torrentUrl: p.torrentUrl || null,
     pageUrl: p.pageUrl || null,
     thumbnail: p.thumbnail || null,
+    // Direct-download support: fileUrl = plain HTTP(S) content URL the
+    // app may stream (hosts re-validated in lib/network at download time);
+    // fileSource = capability tag the UI routes on ('archive-item').
+    fileUrl: typeof p.fileUrl === 'string' && /^https?:\/\//i.test(p.fileUrl) ? p.fileUrl : null,
+    fileSource: p.fileSource || null,
     demo: !!(engine.demo || p.demo),
     relevance: p.relevance ?? 0,
     hints: Array.isArray(p.hints) ? p.hints : [],

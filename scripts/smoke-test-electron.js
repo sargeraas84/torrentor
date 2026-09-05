@@ -110,12 +110,16 @@ async function main() {
   ok('completed search recorded in history');
 
   // ----- source health self-test (live probes over the real bridge) -----
+  // Expected set derives from the registry so adding an engine (e.g. the
+  // opt-in Pirate Bay) never bit-rots this assertion again.
+  const registry = require('../indexers/registry');
+  const expectedReal = registry.meta().filter((m) => !m.demo).map((m) => m.id).sort();
   const health0 = await js(`window.torrentor.getHealth()`);
   if (!Array.isArray(health0) || health0.length !== 0) throw new Error('getHealth should start empty');
   const healthRun = await js(`window.torrentor.runHealth()`);
-  const healthIds = (healthRun || []).map((h) => h.engineId);
-  if (healthRun.length !== 3 || !healthIds.includes('archive-org') || !healthIds.includes('distro-releases') || !healthIds.includes('arch-releases')) {
-    throw new Error('health:run did not test the 3 real engines: ' + JSON.stringify(healthIds));
+  const healthIds = ((healthRun || []).map((h) => h.engineId)).sort();
+  if (JSON.stringify(healthIds) !== JSON.stringify(expectedReal)) {
+    throw new Error('health:run did not test every real engine: ' + JSON.stringify(healthIds));
   }
   for (const h of healthRun) {
     if (!('ok' in h) || !Number.isInteger(h.count) || typeof h.latencyMs !== 'number' || !h.at) {
@@ -124,7 +128,7 @@ async function main() {
     if (!h.ok) throw new Error(`${h.engineId} unhealthy: ${h.error}`);
   }
   const health1 = await js(`window.torrentor.getHealth()`);
-  if (health1.length !== 3) throw new Error('health results not persisted after run');
+  if (health1.length !== expectedReal.length) throw new Error('health results not persisted after run');
   ok(`health self-test probed ${healthRun.length} real engines over IPC and persisted verdicts`);
 
   console.log(`\n${passed} checks passed ✔\n`);

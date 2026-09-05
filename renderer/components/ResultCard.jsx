@@ -49,11 +49,14 @@ function Menu({ result, isFav, onAction }) {
   }, [open]);
 
   const items = [];
+  // Direct file download takes the primary button slot when available;
+  // only cards whose primary action is elsewhere get it in the menu too.
+  if (result.fileUrl && result.magnet && !result.demo) items.push({ key: 'dl-file', label: 'Download file (direct)', icon: <I.download size={14} />, fn: () => onAction('download-file', result) });
   if (result.magnet) items.push({ key: 'copy-magnet', label: 'Copy magnet link', icon: <I.copy size={14} />, fn: () => onAction('copy', result.magnet) });
   if (result.torrentUrl) items.push({ key: 'copy-torrent', label: 'Copy .torrent URL', icon: <I.link size={14} />, fn: () => onAction('copy', result.torrentUrl) });
   if (result.infohash) items.push({ key: 'copy-ih', label: `Copy infohash (${result.infohash.slice(0, 12)}…)`, icon: <I.hash size={14} />, fn: () => onAction('copy', result.infohash) });
   if (result.pageUrl) items.push({ key: 'page', label: 'Open source page', icon: <I.external size={14} />, fn: () => onAction('open', result.pageUrl) });
-  if (result.torrentUrl) items.push({ key: 'torrent-ext', label: 'Download .torrent file', icon: <I.download size={14} />, fn: () => onAction('open', result.torrentUrl) });
+  if (result.torrentUrl) items.push({ key: 'torrent-ext', label: 'Download .torrent file', icon: <I.file size={14} />, fn: () => onAction('open', result.torrentUrl) });
   items.push({ key: 'fav', label: isFav ? 'Remove favorite' : 'Save favorite', icon: <I.starOutline size={14} />, fn: () => onAction('fav', result) });
 
   return (
@@ -134,11 +137,19 @@ const iconBtn = {
 // present (the item's own classification beats a keyword guess).
 const MEDIATYPE_CAT = { movies: 'video', audio: 'audio', etree: 'audio', texts: 'documents', software: 'apps', image: 'other', data: 'other' };
 
-module.exports = function ResultCard({ result, isFav, onToast, onFavToggle }) {
+module.exports = function ResultCard({ result, isFav, onToast, onFavToggle, onDownload, onFiles }) {
   const effCategory = MEDIATYPE_CAT[result.mediatype] || result.category || 'other';
   const meta = CATEGORY_META[effCategory] || CATEGORY_META.other;
   const hasMagnet = !!result.magnet;
-  const primary = hasMagnet ? 'magnet' : result.torrentUrl ? 'torrent' : null;
+  const archivePicker = !result.demo && result.fileSource === 'archive-item';
+  // The Demo engine mirrors the Archive flow with locally-generated sample
+  // files, so its cards also open a picker — the whole flow works offline.
+  const demoPicker = result.demo && result.fileSource === 'demo-item';
+  const directFile = !result.demo && !!result.fileUrl;
+  const picker = archivePicker || demoPicker;
+  // Direct download is the natural primary when the source exposes plain
+  // files: Archive/demo items open a file picker, ISOs start a direct save.
+  const primary = picker || (directFile && !hasMagnet) ? 'download' : hasMagnet ? 'magnet' : result.torrentUrl ? 'torrent' : null;
   // Archive.org cards carry a poster thumbnail; render it (falling back
   // to the category tile when the image can't load).
   const [thumbFailed, setThumbFailed] = useState(false);
@@ -152,6 +163,10 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle }) {
       window.torrentor.openExternal(payload);
     } else if (kind === 'fav') {
       onFavToggle(payload);
+    } else if (kind === 'files') {
+      onFiles && onFiles(payload);
+    } else if (kind === 'download-file') {
+      onDownload && onDownload(payload);
     }
   };
 
@@ -344,6 +359,32 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle }) {
           >
             <I.magnet size={14} />
             {result.demo ? 'Demo magnet' : 'Magnet'}
+          </button>
+        )}
+        {primary === 'download' && (
+          <button
+            type="button"
+            className="app-nodrag tooltip"
+            data-testid="direct-download"
+            data-tip={picker ? (demoPicker ? 'Pick a sample file and try the download flow offline' : 'Pick a file from this item and download it directly') : 'Download this file directly (no torrent client needed)'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 30,
+              padding: '0 12px',
+              borderRadius: 8,
+              background: demoPicker ? 'rgba(251,191,36,0.12)' : archivePicker ? 'rgba(45,212,191,0.12)' : 'rgba(34,197,94,0.12)',
+              border: `1px solid ${demoPicker ? '#fbbf2455' : archivePicker ? '#2dd4bf55' : '#22c55e44'}`,
+              color: demoPicker ? '#f5d78e' : archivePicker ? '#8ff0e0' : '#86efac',
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+            onClick={() => doAction(picker ? 'files' : 'download-file', result)}
+          >
+            <I.download size={14} />
+            {picker ? 'Download files' : 'Download file'}
           </button>
         )}
         {primary === 'torrent' && (

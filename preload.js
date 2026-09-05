@@ -67,6 +67,16 @@ contextBridge.exposeInMainWorld('torrentor', {
   copy: bridge('app:copy', (text) => ({ text })),
   openExternal: bridge('app:openExternal', (url) => ({ url })),
 
+  // ----- direct downloads (main-process streaming; hosts allowlisted)
+  getDownloads: bridge('downloads:list'),
+  clearDownloads: bridge('downloads:clear'),
+  onDownloadsChanged: (cb) => subscribe('downloads:changed', cb),
+  itemFiles: bridge('download:itemFiles', (sourceId, itemId) => ({ sourceId, itemId })),
+  downloadFile: bridge('download:start', (url) => ({ url })),
+  retryDownload: bridge('download:retry', (id) => ({ id })),
+  cancelDownload: bridge('download:cancel', (id) => ({ id })),
+  revealDownload: bridge('downloads:reveal', (id) => ({ id })),
+
   // ----- window controls
   minimize: () => ipcRenderer.send('win:minimize'),
   toggleMaximize: () => ipcRenderer.send('win:toggleMaximize'),

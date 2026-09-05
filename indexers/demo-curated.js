@@ -83,6 +83,12 @@ async function search(query, ctx) {
           infohash: ih,
           thumbnail: null,
           demo: true,
+          // Offline direct-download surface: the card's download button
+          // opens the file picker, which lists locally-generated sample
+          // files (lib/downloads demoFiles) — the full picker → save →
+          // progress flow works with zero network. The fake infohash is
+          // still there for the magnet hand-off demo.
+          fileSource: 'demo-item',
           relevance: titleScore,
         },
         ENGINE

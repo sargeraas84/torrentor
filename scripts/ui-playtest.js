@@ -47,8 +47,14 @@ async function main() {
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 3) consoleErrors.push(String(message).slice(0, 300));
   });
+  win.webContents.on('render-process-gone', (_e, details) => {
+    consoleErrors.push(`RENDERER GONE: ${JSON.stringify(details)}`);
+  });
 
-  const js = (code) => win.webContents.executeJavaScript(code, true);
+  const js = (code) =>
+    win.webContents.executeJavaScript(code, true).catch((err) => {
+      throw new Error(`[playtest] evaluate failed (${String(err && err.message || err).slice(0, 140)})\n  code: ${String(code).slice(0, 220)}`);
+    });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function waitFor(desc, code, timeoutMs = 15000) {
@@ -75,7 +81,7 @@ async function main() {
     if (win.webContents.isLoading()) win.webContents.once('did-finish-load', resolve);
     else resolve();
   });
-  await waitFor('React UI mounts', `document.querySelectorAll('[data-testid^="engine-"]').length === 4`);
+  await waitFor('React UI mounts', `document.querySelectorAll('[data-testid^="engine-"]').length >= 4`);
 
   // ================= 1. careless input: too-short query =================
   await setText('[data-testid="search-input"]', 'a');
@@ -305,6 +311,48 @@ async function main() {
   await waitFor('history rows recorded', `document.querySelectorAll('[data-testid="history-row"]').length >= 4`);
   const rows = await js(`document.querySelectorAll('[data-testid="history-row"]').length`);
   ok(`recent searches recorded: ${rows} entries in Recent tab`);
+
+  // ===== 9. Demo direct download: offline picker → file → tray =====
+  // The Demo engine mirrors the Archive flow with locally-generated sample
+  // files, so the whole download UI is drivable with zero network. Query a
+  // term only the demo catalog matches ('fluffing a duck'), then use the
+  // demo card's picker button.
+  await click('[data-testid="tab-search"]');
+  await setText('[data-testid="search-input"]', 'fluffing a duck');
+  await wait(80);
+  await click('[data-testid="search-go"]');
+  await waitFor('demo query completes', `(() => { const s = document.querySelector('[data-testid="run-summary"]'); return s && /\\d+ unique results? from/.test(s.textContent); })()`, 25000);
+  const demoBtnSel = await js(`(() => {
+      const cards = [...document.querySelectorAll('[data-testid="result-card"]')];
+      const demo = cards.find((c) => c.innerText.includes('DEMO'));
+      const b = demo && demo.querySelector('[data-testid="direct-download"]');
+      if (!b) return null;
+      b.scrollIntoView({ block: 'center' });
+      return b.getBoundingClientRect().width > 0;
+    })()`);
+  if (!demoBtnSel) throw new Error('No demo card with a direct-download button for a demo-only query');
+  await js(`(() => {
+      const cards = [...document.querySelectorAll('[data-testid="result-card"]')];
+      const demo = cards.find((c) => c.innerText.includes('DEMO'));
+      const b = demo.querySelector('[data-testid="direct-download"]');
+      b.click();
+      return true;
+    })()`);
+  await waitFor('demo picker opens with both sample files', `document.querySelectorAll('[data-testid="files-modal"] [data-testid="file-download"]').length === 2`, 10000);
+  const modalRow = await textOf('[data-testid="files-modal"]');
+  ok('demo card download button opens the file picker (offline)', modalRow.replace(/\s+/g, ' ').slice(0, 60));
+  await click('[data-testid="files-modal"] [data-testid="file-download"]');
+  await waitFor('tray shows the finished demo transfer', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return t && t.innerText.includes('demo-content.txt') && t.innerText.includes('Done'); })()`, 8000);
+  ok('demo file streamed end-to-end: picker → save → progress → Done chip');
+  const revealBtn = await js(`!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-reveal"]')`);
+  if (!revealBtn) defect('finished transfer offers reveal-in-folder', 'dl-reveal missing');
+  else ok('finished transfer offers reveal-in-folder');
+  // Close the picker (its overlay sits above the tray), then clear.
+  await click('[data-testid="files-modal"] button[aria-label="Close"]');
+  await waitFor('picker closed', `!document.querySelector('[data-testid="files-modal"]')`);
+  await js(`(() => { const b = [...document.querySelectorAll('[data-testid="download-tray"] button')].find((x) => x.textContent.includes('Clear finished')); if (!b) return false; b.click(); return true; })()`);
+  await waitFor('tray clears after Clear finished', `!document.querySelector('[data-testid="download-tray"]')`, 8000);
+  ok('Clear finished empties the download tray');
 
   if (consoleErrors.length) {
     console.log('  ! renderer console errors observed:', consoleErrors.slice(0, 5));
