@@ -325,6 +325,14 @@ async function main() {
   await waitFor('default download-limit select', `!!document.querySelector('[data-testid="dl-limit-default"]')`);
   await js(`(() => { const el = document.querySelector('[data-testid="dl-limit-default"]'); if (!el) return false; el.value = '102400'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await wait(150);
+  // Per-source default download folder: the Choose-folder button normally
+  // opens a native dialog, which SMOKE mode stubs with a deterministic temp
+  // dir (same convention as the save dialog). Assert the pref landed.
+  await click('[data-testid="dl-folder-demo-curated"]');
+  await wait(250);
+  const folderPath = await js(`window.torrentor.getState().then((s) => ((s.prefs && s.prefs.downloadDirs) || {})['demo-curated'] || '')`);
+  if (!folderPath || !folderPath.includes('torrentor-dir-demo-curated')) defect('per-source default folder saved from Settings', String(folderPath || 'none'));
+  else ok('per-source default folder chosen in Settings', folderPath);
   await click('[data-testid="close-settings"]');
   await waitFor('settings closed after setting the default limit', `!document.querySelector('[data-testid="st-library"]')`);
 
@@ -362,6 +370,14 @@ async function main() {
   const pacedStill = await js(`(() => { const t = document.querySelector('[data-testid="download-tray"]'); const b = t && t.querySelector('[data-testid="dl-limit"]'); return !!b && b.getAttribute('data-limit') === '102400' && !t.innerText.includes('Done'); })()`);
   if (!pacedStill) defect('default 100 KB/s visibly paces the demo download', 'chip not still streaming at 100 KB/s after ~1.3s');
   else ok('default speed limit paces new downloads', 'still streaming at 100 KB/s after ~1.3s (an unlimited demo finishes instantly)');
+  // Pause parks the transfer (partial kept, queue slot freed)…
+  await click('[data-testid="download-tray"] [data-testid="dl-pause"]');
+  await waitFor('chip parks as Paused with resume/remove', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return !!t && !!t.querySelector('[data-testid="dl-resume"]') && !!t.querySelector('[data-testid="dl-remove"]') && !t.innerText.includes('Done'); })()`, 6000);
+  ok('pause parks the running demo download (partial kept, slot freed)');
+  // …and resume continues it under the same limit.
+  await click('[data-testid="download-tray"] [data-testid="dl-resume"]');
+  await waitFor('chip back to downloading after resume', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-pause"]'); return !!b; })()`, 6000);
+  ok('resume restarts the paused download (limit kept, partial-based)');
   // Raise the live limit from the tray control (100 → 256 KB/s)…
   await click('[data-testid="download-tray"] [data-testid="dl-limit"]');
   await waitFor('per-transfer control updates to 256 KB/s', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-limit"]'); return b && b.getAttribute('data-limit') === '262144'; })()`, 6000);

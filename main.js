@@ -508,15 +508,31 @@ function registerIpc() {
 
     const label = isDemo ? downloads.demoLabel(href) : downloads.suggestedName(href);
     // Per-source default folder (Settings → Library) wins over the shared
-    // last-used folder when the URL maps to a direct-file engine.
+    // last-used folder when the URL maps to a direct-file engine. The
+    // winning rule is recorded on the transfer so tray chips can explain
+    // where the file went.
     const engineId = downloads.engineForUrl(href);
+    const prefs0 = storage.getPrefs();
+    const dirs0 = prefs0.downloadDirs || {};
+    const sourceDir = engineId && dirs0[engineId];
+    const lastDir = prefs0.downloadDir;
+    let folderRule = '';
+    if (engineId) {
+      const sourceName = (registry.get(engineId) || {}).name || engineId;
+      folderRule = sourceDir
+        ? `${sourceName} default folder`
+        : lastDir
+          ? 'Last-used folder'
+          : 'Folder chosen in the save dialog';
+    } else if (lastDir) {
+      folderRule = 'Last-used folder';
+    }
     let destPath;
     if (SMOKE_MODE) {
       destPath = path.join(os.tmpdir(), `torrentor-dl-${Date.now()}-${label}`);
     } else {
       const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-      const dirs = (storage.getPrefs().downloadDirs || {});
-      const dir = (engineId && dirs[engineId]) || storage.getPrefs().downloadDir || undefined;
+      const dir = sourceDir || lastDir || undefined;
       const res = await dialog.showSaveDialog(win, {
         title: 'Save download',
         defaultPath: dir ? path.join(dir, label) : label,
@@ -538,6 +554,7 @@ function registerIpc() {
     // New transfers inherit the Settings → default speed limit (bytes/sec).
     const transfer = downloads.startDownload(href, destPath, (entry, kind) => broadcastDownloads(kind, entry.id), {
       maxBytesPerSec: Number(storage.getPrefs().downloadSpeedLimit) || 0,
+      folderRule,
     });
     return { cancelled: false, transfer };
   });
@@ -564,6 +581,12 @@ function registerIpc() {
     if (!id) throw new Error('Choose a source first.');
     const prefs = storage.getPrefs();
     const startDir = (prefs.downloadDirs && prefs.downloadDirs[id]) || prefs.downloadDir || undefined;
+    if (SMOKE_MODE) {
+      // The real-window playtest can't drive a native dialog: return a
+      // deterministic per-engine temp folder, exactly like download:start
+      // bypasses the save dialog under TORRENTOR_SMOKE.
+      return { cancelled: false, path: path.join(os.tmpdir(), `torrentor-dir-${id}`) };
+    }
     const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
     const res = await dialog.showOpenDialog(win, {
       title: `Default download folder — ${id}`,
@@ -572,6 +595,19 @@ function registerIpc() {
     });
     if (res.canceled || !res.filePaths || !res.filePaths[0]) return { cancelled: true, path: null };
     return { cancelled: false, path: res.filePaths[0] };
+  });
+
+  // Bulk actions for the tray header when several transfers are paused.
+  handle('download:pausedResume', () => {
+    downloads.resumeAllPaused((entry, kind) => broadcastDownloads(kind, entry.id));
+    broadcastDownloads('paused', null);
+    return downloads.snapshot();
+  });
+
+  handle('download:pausedRemove', () => {
+    const n = downloads.removeAllPaused();
+    broadcastDownloads('removed', null);
+    return downloads.snapshot();
   });
 
   // Per-transfer speed limit (bytes/sec, 0 = unlimited). The rate is read

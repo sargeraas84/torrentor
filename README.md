@@ -114,14 +114,15 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 72 pure-Node checks (no window, no network)
+npm test           # 74 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   a genuine download, quits mid-flight, relaunches, and
                     #   asserts the .part auto-resumed to the full file
 npm run test:ui    # drives the real window (real engines): search, favorites,
-                    #   VPN check, paging, thumbnails, paced demo + real Archive
-                    #   direct downloads — needs network
+                    #   VPN check, paging, thumbnails, paced demo (paused &
+                    #   resumed from the tray), per-source save folder, and a real
+                    #   Archive direct download — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 

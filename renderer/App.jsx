@@ -131,6 +131,22 @@ function App() {
       /* non-fatal */
     }
   };
+  const resumeAllDl = async () => {
+    try {
+      const list = await api.resumePausedDownloads();
+      setDownloads(list || []);
+    } catch {
+      /* tray updates via the broadcast anyway */
+    }
+  };
+  const removeAllPausedDl = async () => {
+    try {
+      const list = await api.removePausedDownloads();
+      setDownloads(list || []);
+    } catch {
+      /* tray updates via the broadcast anyway */
+    }
+  };
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -615,7 +631,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onPause={pauseDl} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} />
 
       {settingsOpen && (
         <SettingsModal

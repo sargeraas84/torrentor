@@ -86,10 +86,10 @@
                 <table>
                   <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
                   <tbody>
-                    <tr><td><code>npm test</code></td><td>72 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder/pause/restore. No window, no network.</td></tr>
+                    <tr><td><code>npm test</code></td><td>74 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder/pause/restore, per-source folder rules, and bulk pause/resume. No window, no network.</td></tr>
                     <tr><td><code>npm run test:resume</code></td><td>3 two-boot checks — boots the real app twice on one data dir over a slow Range-capable local server: starts a genuine download, quits mid-flight, relaunches, and asserts the transfer auto-resumed from its <code>.part</code> to the exact full size.</td></tr>
                     <tr><td><code>npm run test:electron</code></td><td>8 IPC checks through the real main process — search, favorites, health round-trip.</td></tr>
-                    <tr><td><code>npm run test:ui</code></td><td>35-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, sets the default speed limit and watches a <i>paced</i> demo download (tray control raised mid-flight), then streams a real Internet Archive file end-to-end.</td></tr>
+                    <tr><td><code>npm run test:ui</code></td><td>38-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, sets the default speed limit and watches a <i>paced</i> demo download (tray control raised mid-flight, paused &amp; resumed), picks a per-source save folder in Settings, then streams a real Internet Archive file end-to-end.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -239,7 +239,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
                 </ul>
               </div>
-              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 72 Node checks, 8 Electron IPC checks, 3 two-boot resume checks, and a 35-step real-window playtest (which now paces a demo download and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab); the <code>ci</code> workflow also runs the Electron IPC + two-boot suites on every push.</div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 74 Node checks, 8 Electron IPC checks, 3 two-boot resume checks, and a 38-step real-window playtest (which paces and pauses a demo download, sets a per-source save folder, and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab); the <code>ci</code> workflow also runs the Electron IPC + two-boot suites on every push.</div>
             </div>
         </div>
       </div>

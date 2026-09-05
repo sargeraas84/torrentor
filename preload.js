@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('torrentor', {
   cancelDownload: bridge('download:cancel', (id) => ({ id })),
   setDownloadLimit: bridge('download:limit', (id, bytesPerSec) => ({ id, bytesPerSec })),
   moveDownload: bridge('download:move', (id, dir) => ({ id, dir })),
+  resumePausedDownloads: bridge('download:pausedResume'),
+  removePausedDownloads: bridge('download:pausedRemove'),
   revealDownload: bridge('downloads:reveal', (id) => ({ id })),
   chooseDownloadDir: bridge('downloads:chooseDir', (engineId) => ({ engineId })),
 

@@ -1145,6 +1145,66 @@ async function main() {
     dm.clearFinished();
   });
 
+  ok('scheduler: folderRule recorded, bulk resume/remove all paused', async () => {
+    dm.clearFinished();
+    const destA = path.join(dmDir, 'bulk-a.txt');
+    const destB = path.join(dmDir, 'bulk-b.txt');
+    const mk = (dest, label) => dm.startDownload('demo:content', dest, () => {}, { folderRule: label, maxBytesPerSec: 102400 });
+    const a = mk(destA, 'Demo index default folder');
+    const b = mk(destB, 'Demo index default folder');
+    const snapA = dm.snapshot().find((x) => x.id === a.id);
+    assert.strictEqual(snapA.folderRule, 'Demo index default folder', 'folder rule recorded on the entry');
+    assert.ok(snapA.dir && snapA.dir.length > 0, 'save folder derived from destination');
+    // A transfer only becomes pausable once it is actually streaming — if a
+    // slot was transiently busy it waits queued first. Park each one as it
+    // starts (pausing frees the slot for the next, like the real tray).
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const t0 = Date.now();
+    while (Date.now() - t0 < 8000) {
+      const ids = [a.id, b.id].filter((id) => {
+        const x = dm.getDownload(id);
+        return x && x.status !== 'paused';
+      });
+      if (!ids.length) break;
+      for (const id of ids) {
+        const x = dm.getDownload(id);
+        if (x && x.status === 'downloading') dm.pauseDownload(id);
+      }
+      await sleep(30);
+    }
+    assert.strictEqual(dm.getDownload(a.id).status, 'paused');
+    assert.strictEqual(dm.getDownload(b.id).status, 'paused');
+    assert.strictEqual(dm.resumeAllPaused(), 2, 'bulk resume returns both');
+    assert.ok(dm.snapshot().find((x) => x.id === a.id).status === 'downloading', 'both resumed');
+    dm.setSpeedLimit(a.id, 0);
+    dm.setSpeedLimit(b.id, 0);
+    await waitFor(() => dm.getDownload(a.id).status === 'done' && dm.getDownload(b.id).status === 'done', 8000);
+    dm.clearFinished();
+    const c = mk(path.join(dmDir, 'bulk-c.txt'), 'Last-used folder');
+    const d = mk(path.join(dmDir, 'bulk-d.txt'), 'Last-used folder');
+    dm.pauseDownload(c.id);
+    dm.pauseDownload(d.id);
+    await waitFor(() => dm.getDownload(c.id).status === 'paused' && dm.getDownload(d.id).status === 'paused', 4000);
+    assert.strictEqual(dm.removeAllPaused(), 2, 'bulk remove returns both');
+    assert.ok(!dm.snapshot().some((x) => x.id === c.id || x.id === d.id), 'all paused gone (partials dropped)');
+    dm.clearFinished();
+  });
+
+  ok('scheduler: folderRule survives a persisted restore', async () => {
+    dm.clearFinished();
+    const dest = path.join(dmDir, 'rule-restore.txt');
+    const n = dm.restorePending(
+      [{ url: 'demo:readme', filePath: dest, demo: true, maxBytesPerSec: 0, folderRule: 'Internet Archive default folder' }],
+      () => {}
+    );
+    assert.strictEqual(n, 1);
+    const t = dm.snapshot().find((x) => x.filePath === dest);
+    assert.ok(t, 'restored transfer present');
+    assert.strictEqual(t.folderRule, 'Internet Archive default folder', 'rule carried across restart');
+    await waitFor(() => dm.getDownload(t.id) && dm.getDownload(t.id).status === 'done', 5000);
+    dm.clearFinished();
+  });
+
   ok('engineForUrl maps direct-file URLs to their engine (per-source folders)', () => {
     assert.strictEqual(dm.engineForUrl('https://archive.org/download/x/y.mp4'), 'archive-org');
     assert.strictEqual(dm.engineForUrl('https://releases.ubuntu.com/24.04/x.iso'), 'distro-releases');

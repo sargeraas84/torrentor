@@ -150,7 +150,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onPause }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onPause, onResumeAll, onRemoveAll }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -179,6 +179,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         const queued = d.status === 'queued';
         const paused = d.status === 'paused';
         const pct = !queued && !paused && d.total ? Math.min(100, (d.received / d.total) * 100) : null;
+        const folderNote = d.dir && !queued ? d.dir + (d.folderRule ? ` — ${d.folderRule}` : '') : '';
         return (
           <div key={d.id} style={chip}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -304,9 +305,44 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                 />
               </div>
             )}
+            {folderNote && (
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, color: '#5b6b84', fontSize: 9.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+                title={folderNote}
+              >
+                <I.folder size={9} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{folderNote}</span>
+              </div>
+            )}
           </div>
         );
       })}
+
+      {pausedItems.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            pointerEvents: 'auto',
+            background: 'rgba(251,191,36,0.07)',
+            border: '1px solid #fbbf2433',
+            borderRadius: 9,
+            padding: '5px 8px',
+          }}
+        >
+          <I.pause size={12} style={{ color: '#fbbf24', flexShrink: 0 }} />
+          <span style={{ color: '#f5d78e', fontSize: 11, fontWeight: 600, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {pausedItems.length} paused
+          </span>
+          <button type="button" data-testid="dl-resume-all" style={miniTxt} onClick={() => onResumeAll && onResumeAll()}>
+            <I.play size={10} /> Resume all
+          </button>
+          <button type="button" data-testid="dl-remove-all" style={miniTxt} onClick={() => onRemoveAll && onRemoveAll()}>
+            <I.close size={10} /> Remove all
+          </button>
+        </div>
+      )}
 
       {finished.map((d) => {
         const done = d.status === 'done';
@@ -337,7 +373,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ ...chipTitle, color: done ? '#9fdcb9' : d.status === 'cancelled' ? '#8494ab' : '#f2b8bf' }}>{d.name}</div>
                 <div style={{ color: '#6f8199', fontSize: 10.5, marginTop: 1 }}>
-                  {done ? `Done · ${d.dir || 'saved'}` : d.status === 'cancelled' ? 'Cancelled — partial progress kept' : `Failed — ${d.error || 'unknown error'}`}
+                  {done ? `Done · ${d.dir || 'saved'}${d.folderRule ? ` — via ${d.folderRule}` : ''}` : d.status === 'cancelled' ? 'Cancelled — partial progress kept' : `Failed — ${d.error || 'unknown error'}`}
                 </div>
               </div>
               {done ? (
@@ -451,6 +487,22 @@ const moveBtn = {
   color: '#5f7189',
   cursor: 'pointer',
   flexShrink: 0,
+};
+const miniTxt = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  height: 20,
+  padding: '0 6px',
+  borderRadius: 6,
+  background: 'rgba(251,191,36,0.1)',
+  border: '1px solid #fbbf2440',
+  color: '#f5d78e',
+  fontSize: 10,
+  fontWeight: 600,
+  cursor: 'pointer',
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
 };
 const limitBtn = {
   display: 'inline-flex',
