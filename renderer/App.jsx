@@ -141,6 +141,40 @@ function App() {
       await setDlLimit(Number(id), Number(bytesPerSec));
     }
   };
+  const refreshPrefs = async () => {
+    try {
+      const s = await api.getState();
+      setPrefsState(s.prefs || { proxy: { enabled: false } });
+    } catch {
+      /* non-fatal */
+    }
+  };
+  // Named queue plans: save / recall / re-apply a what-if patch. The plans
+  // live in prefs (keyed by destination path), so they survive restarts.
+  const savePlan = async (name, patch) => {
+    try {
+      await api.saveQueuePlan(name, patch || {});
+      await refreshPrefs();
+    } catch (err) {
+      showToast(`Plan save failed — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
+  const reapplyPlan = async (name) => {
+    try {
+      const res = await api.applyQueuePlan(name);
+      if (res && res.snapshot) setDownloads(res.snapshot);
+    } catch (err) {
+      showToast(`Plan apply failed — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
+  const deletePlan = async (name) => {
+    try {
+      await api.deleteQueuePlan(name);
+      await refreshPrefs();
+    } catch {
+      /* non-fatal */
+    }
+  };
   const moveDl = async (id, dir) => {
     try {
       const list = await api.moveDownload(id, dir);
@@ -681,7 +715,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} />
 
       {settingsOpen && (
         <SettingsModal

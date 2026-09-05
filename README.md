@@ -114,7 +114,7 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 85 pure-Node checks (no window, no network)
+npm test           # 87 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   a genuine download, quits mid-flight, relaunches, and
@@ -125,9 +125,11 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
 npm run test:ui    # drives the real window (real engines): search, favorites,
                     #   VPN check, paging, thumbnails, paced demo (paused &
                     #   resumed, queue reordered by drag-and-drop + smart
-                    #   order toggle with per-chip ETA/bytes + popover
-                    #   what-if preview), per-source save folder, and a
-                    #   real Archive direct download — needs network
+                    #   order toggle with per-chip ETA/bytes + a popover
+                    #   that previews limits (per-file and per-folder
+                    #   steppers) and saves named queue plans), per-source
+                    #   save folder, and a real Archive direct download
+                    #   — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 
@@ -147,7 +149,7 @@ attached. Verify the four artifacts, then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.4.4 && git push origin v1.4.4
+git tag v1.4.5 && git push origin v1.4.5
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`

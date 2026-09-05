@@ -21,6 +21,7 @@ process.env.TORRENTOR_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'torrento
 
 let passed = 0;
 const defects = [];
+let consoleErrors = []; // hoisted so the failure path can report renderer errors
 function ok(name, extra) {
   passed++;
   console.log(`  ✓ ${name}${extra ? ` — ${extra}` : ''}`);
@@ -43,7 +44,7 @@ async function main() {
   }
   if (!win) throw new Error('App window never appeared');
 
-  const consoleErrors = [];
+  consoleErrors = [];
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 3) consoleErrors.push(String(message).slice(0, 300));
   });
@@ -469,28 +470,76 @@ async function main() {
   }
   ok('smart-order popover explains the queue (per-file ETA + bars)', `${popInfo.rows} rows with ETA bars`);
   // What-if mode: hypothetical speed limits re-rank the preview without
-  // touching the queue. Both queued files sit at 100 KB/s with equal ETAs,
-  // so raising the SECOND row's limit (100 → 256 KB/s) jumps it first.
+  // touching the queue. Both queued files sit at 100 KB/s with equal ETAs
+  // AND share one destination folder (SMOKE dirs embed Date.now()), so a
+  // folder-wide stepper appears: cycling it sets BOTH rows at once.
   const popIds = await js(`[...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-smart-row"]')].map((r) => Number(r.getAttribute('data-id')))`);
   if (popIds.length !== 2) throw new Error(`Expected 2 popover rows for what-if, got ${popIds.length}`);
   await click('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]');
   await waitFor('what-if steppers appear on every preview row', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 2`, 6000);
+  const folderDir = await waitFor(
+    'folder stepper appears for the shared destination folder',
+    `(() => { const f = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-folder"]'); return f ? f.getAttribute('data-dir') : null; })()`,
+    6000
+  );
+  await click('[data-testid="download-tray"] [data-testid="dl-whatif-folder-step"]');
+  await waitFor(
+    'folder stepper sets every same-folder file to one limit',
+    `(() => { const steps = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]')]; return steps.length === 2 && steps.every((s) => s.getAttribute('data-limit') === '262144') ? steps.length : null; })()`,
+    6000
+  );
+  ok('folder stepper re-ranks the whole folder at once', `folder …${String(folderDir).slice(-28)} → both files @ 256 KB/s`);
+  // Per-file stepper on the second row: 256 → 512 KB/s jumps it first.
   await click(`[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[1]}"]`);
-  await waitFor('stepper shows the hypothetical 256 KB/s', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[1]}"]').getAttribute('data-limit') === '262144'`, 6000);
+  await waitFor('stepper shows the hypothetical 512 KB/s', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[1]}"]').getAttribute('data-limit') === '524288'`, 6000);
   await waitFor('preview re-ranks the patched file first', `(() => { const rows = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-smart-row"]')]; return rows.length === 2 && Number(rows[0].getAttribute('data-id')) === ${popIds[1]} ? rows[0].getAttribute('data-id') : null; })()`, 6000);
-  ok('what-if preview re-ranks the queue (100 → 256 KB/s jumps the row)');
+  ok('per-file stepper re-ranks the queue (256 → 512 KB/s jumps the row)');
   await click('[data-testid="download-tray"] [data-testid="dl-whatif-apply"]');
   await waitFor(
-    'Apply commits the limit and re-sorts the live queue',
+    'Apply commits the limits and re-sorts the live queue',
     `(() => {
       const chip = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${popIds[1]}"] [data-testid="dl-limit"]');
-      if (!chip || chip.getAttribute('data-limit') !== '262144') return null;
+      if (!chip || chip.getAttribute('data-limit') !== '524288') return null;
       const ids = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]')].map((c) => Number(c.getAttribute('data-id')));
       return ids[0] === ${popIds[1]} ? ids.join(',') : null;
     })()`,
     6000
   );
-  ok('what-if Apply commits the limit and the queue re-sorts', `queued starts with ${popIds[1]} @ 256 KB/s`);
+  ok('what-if Apply commits the limits and the queue re-sorts', `queued starts with ${popIds[1]} @ 512 KB/s`);
+  // Queue plans: save the applied patch (row1 256 KB/s, row2 512 KB/s) as
+  // a named plan, then re-apply it after the per-file limit is changed.
+  await setText('[data-testid="download-tray"] [data-testid="dl-plan-name"]', 'fast-track');
+  await wait(150); // let React commit the controlled input value before Save reads it
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-save"]');
+  const planSaved = await waitFor(
+    'plan saved and listed in the popover',
+    `(() => {
+      const row = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-row"]')].find((r) => r.getAttribute('data-name') === 'fast-track');
+      if (row && row.innerText.includes('2 files')) return { saved: true, text: row.innerText.replace(/\s+/g, ' ').trim() };
+      const toast = document.querySelector('[data-testid="toast"]');
+      if (toast && /Plan save failed/.test(toast.textContent || '')) return { saved: false, err: toast.textContent };
+      return null;
+    })()`,
+    6000
+  );
+  if (!planSaved || !planSaved.saved) throw new Error(`plan save check failed: ${JSON.stringify(planSaved)}`);
+  ok('what-if patch persisted as a named queue plan (fast-track, 2 files)', planSaved.text);
+  await click(`[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[0]}"]`); // 256 → 512 KB/s
+  await waitFor('row1 hypothetically moved to 512 KB/s', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[0]}"]').getAttribute('data-limit') === '524288'`, 6000);
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-reapply"][data-name="fast-track"]');
+  await waitFor(
+    'plan re-applies its saved limits for real',
+    `(() => {
+      const c0 = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${popIds[0]}"] [data-testid="dl-limit"]');
+      const c1 = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${popIds[1]}"] [data-testid="dl-limit"]');
+      return c0 && c1 && c0.getAttribute('data-limit') === '262144' && c1.getAttribute('data-limit') === '524288' ? true : null;
+    })()`,
+    6000
+  );
+  ok('queue plan recalled and re-applied', 'row1 back to 256 KB/s, row2 stays 512 KB/s');
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-delete"][data-name="fast-track"]');
+  await waitFor('plan deleted from the list', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-row"]')].some((r) => r.getAttribute('data-name') === 'fast-track')`, 6000);
+  ok('queue plan deleted on demand');
   await click('[data-testid="download-tray"] [data-testid="dl-smart-pop-close"]');
   await waitFor('popover closes on demand', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
   ok('smart-order popover closes on demand');
@@ -611,6 +660,7 @@ async function main() {
 
 main().catch((err) => {
   console.error('\n✗ UI PLAYTEST FAILED:', err);
+  if (consoleErrors.length) console.error('  renderer console errors:', consoleErrors.slice(0, 6));
   try {
     fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
   } catch {

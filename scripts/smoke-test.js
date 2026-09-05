@@ -1295,6 +1295,40 @@ async function main() {
     dm.setSmartOrder(false);
   });
 
+  ok('queue plans: saved patches key by path and re-apply by re-matching it', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `plan-${n}.txt`);
+    dm.startDownload('demo:content', mk('a'), null, { maxBytesPerSec: 51200 });
+    dm.startDownload('demo:content', mk('b'), null, { maxBytesPerSec: 51200 });
+    const p1 = dm.startDownload('demo:content', mk('p1'), null, { maxBytesPerSec: 102400 });
+    const p2 = dm.startDownload('demo:content', mk('p2'), null, { maxBytesPerSec: 102400 });
+    // planEntries turns a transient id-keyed patch into stable path keys,
+    // dropping ids that no longer resolve.
+    const entries = dm.planEntries({ [p2.id]: 1024 * 1024, [p1.id]: 0, 999999: 12345 });
+    assert.strictEqual(entries.length, 2, 'unknown transfer ids are dropped');
+    assert.deepStrictEqual(entries.find((e) => e.filePath === p2.filePath), { filePath: p2.filePath, bytesPerSec: 1024 * 1024 }, 'plan stores path + limit');
+    assert.deepStrictEqual(entries.find((e) => e.filePath === p1.filePath), { filePath: p1.filePath, bytesPerSec: 0 }, 'unlimited (0) survives normalization');
+    // applyPlanEntries re-matches by path and re-ranks like a live change.
+    const applied = dm.applyPlanEntries(entries);
+    assert.strictEqual(applied, 2, 'both listed files got limits');
+    assert.strictEqual(dm.getDownload(p2.id).maxBytesPerSec, 1024 * 1024, 'limit applied for real');
+    assert.strictEqual(dm.getDownload(p1.id).maxBytesPerSec, 0, 'unlimited applied for real');
+    const q = () => dm.snapshot().filter((t) => t.status === 'queued').map((t) => t.id);
+    assert.deepStrictEqual(q(), [p2.id, p1.id], 'applying the plan re-ranks the smart-ordered queue exactly like the preview');
+    // Re-matching a plan against a FRESH transfer to the same path (as a
+    // relaunch recreates transfers with new ids) still applies.
+    const fresh = dm.startDownload('demo:content', mk('p3'), null, { maxBytesPerSec: 51200 });
+    assert.strictEqual(fresh.status, 'queued', 'the fresh file queues behind the re-ranked pair');
+    const applied2 = dm.applyPlanEntries([{ filePath: fresh.filePath, bytesPerSec: 262144 }]);
+    assert.strictEqual(applied2, 1);
+    assert.strictEqual(dm.getDownload(fresh.id).maxBytesPerSec, 262144, 'path-keyed plan applies to the recreated transfer');
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);
@@ -1587,6 +1621,22 @@ async function main() {
     assert.deepStrictEqual(s2.getStats(), { 'archive-org': { count: 3, bytes: 4096, events: [{ ts: 123, bytes: 4096 }] }, other: { count: 1, bytes: 7, events: [] } }, 'stats (count/bytes/events) survive a storage reload');
     assert.deepStrictEqual(s2.getStats().demo, undefined, 'no phantom engine buckets');
     await new Promise((r) => setTimeout(r, 320)); // let debounced writes settle
+    fs.rmSync(stDir, { recursive: true, force: true });
+  });
+
+  ok('storage: replacePrefs persists deletions the merge would resurrect', () => {
+    const stDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-plans-'));
+    const s = new Storage(stDir);
+    s.updatePrefs({ queuePlans: { a: [{ filePath: '/a', bytesPerSec: 1024 }], b: [{ filePath: '/b', bytesPerSec: 2048 }] } });
+    // The nested merge keeps stored keys, so a deletion via updatePrefs is
+    // silently resurrected — the exact bug replacePrefs exists for.
+    s.updatePrefs({ queuePlans: { a: [{ filePath: '/a', bytesPerSec: 1024 }] } });
+    assert.ok(s.getPrefs().queuePlans.b, 'merge retains keys absent from the partial (documented behavior)');
+    s.replacePrefs('queuePlans', { a: [{ filePath: '/a', bytesPerSec: 1024 }] });
+    assert.ok(!s.getPrefs().queuePlans.b, 'replacePrefs drops the deleted plan in memory');
+    s.flush();
+    const s2 = new Storage(stDir);
+    assert.deepStrictEqual(s2.getPrefs().queuePlans, { a: [{ filePath: '/a', bytesPerSec: 1024 }] }, 'the deletion survives a storage reload');
     fs.rmSync(stDir, { recursive: true, force: true });
   });
 

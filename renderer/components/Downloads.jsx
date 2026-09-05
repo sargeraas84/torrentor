@@ -170,7 +170,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -183,10 +183,30 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const [whatIf, setWhatIf] = useState(false); // popover what-if mode
   const [previewPatch, setPreviewPatch] = useState({}); // hypothetical limits {id: bps}
   const [previewOrder, setPreviewOrder] = useState(null); // previewQueueOrder result
+  const [planName, setPlanName] = useState(''); // save-as-plan input
   // Rows shown in the popover: the live queue, or (in what-if mode) the
   // hypothetical re-rank. Bars scale to the longest estimated wait.
   const displayRows = whatIf ? previewOrder || queuedItems : queuedItems;
   const popMaxEta = displayRows.reduce((m, d) => (d.etaSeconds != null && d.etaSeconds > m ? d.etaSeconds : m), 0);
+  // What-if rows grouped by destination folder, so one stepper can re-rank
+  // an entire same-folder batch at once (the manager's folder tie-break
+  // then batches them together when ETAs tie).
+  const folderGroups = whatIf
+    ? (() => {
+        const groups = [];
+        const byDir = new Map();
+        for (const d of displayRows) {
+          const key = d.dir || '(no folder)';
+          if (!byDir.has(key)) {
+            byDir.set(key, []);
+            groups.push({ dir: key, rows: byDir.get(key) });
+          }
+          byDir.get(key).push(d);
+        }
+        return groups;
+      })()
+    : null;
+  const planNames = Object.keys(queuePlans || {});
   // What-if preview plumbing: hypothetical limits go to the manager (which
   // ranks exactly as Apply would) and come back as an ordered row list.
   const fetchPreview = async (patch) => {
@@ -215,13 +235,86 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   };
   const applyPreview = async () => {
     if (onApplyLimits) await onApplyLimits(previewPatch);
-    setWhatIf(false);
-    setPreviewPatch({});
-    setPreviewOrder(null);
+    // Stay in preview mode so the applied patch can be saved as a plan.
   };
   const resetPreview = async () => {
     setPreviewPatch({});
     setPreviewOrder(await fetchPreview({}));
+  };
+  // Folder stepper: cycle one hypothetical limit and apply it to every
+  // queued file headed to the same folder.
+  const stepFolderLimit = async (dir, current) => {
+    const group = (folderGroups || []).find((g) => g.dir === dir);
+    if (!group) return;
+    const next = nextPreset(current);
+    const patch = { ...previewPatch };
+    for (const d of group.rows) patch[d.id] = next;
+    setPreviewPatch(patch);
+    setPreviewOrder(await fetchPreview(patch));
+  };
+  // Queue plans: save the current patch under a name, re-apply a saved
+  // plan, or delete one.
+  const savePlan = async () => {
+    const name = planName.trim();
+    if (!name || !onSavePlan) return;
+    await onSavePlan(name, previewPatch);
+    setPlanName('');
+  };
+  const reapplyPlan = async (name) => {
+    if (onReapplyPlan) await onReapplyPlan(name);
+  };
+  const deletePlan = async (name) => {
+    if (onDeletePlan) await onDeletePlan(name);
+  };
+  // Hypothetical limit shown on a what-if row/folder stepper: the preview
+  // patch wins, else the row's own (preview rows carry `limit`; live rows
+  // carry maxBytesPerSec).
+  const popHypLimit = (d) => (previewPatch[d.id] !== undefined ? previewPatch[d.id] : d.limit !== undefined ? d.limit : d.maxBytesPerSec);
+  const popRow = (d) => {
+    const eta = d.etaSeconds;
+    const known = eta != null && d.etaTotal != null;
+    return (
+      <div key={d.id} data-testid="dl-smart-row" data-id={d.id} style={{ padding: '6px 0', borderBottom: '1px solid #16253d' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span title={d.name} style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {d.name}
+          </span>
+          <span data-testid="dl-smart-row-eta" style={{ color: '#7ce7f7', fontSize: 10.5, fontWeight: 650, whiteSpace: 'nowrap' }}>
+            {known ? `~${fmtEta(eta)}` : 'size unknown'}
+          </span>
+          {whatIf && (
+            <button
+              type="button"
+              data-testid="dl-whatif-step"
+              data-id={d.id}
+              data-limit={popHypLimit(d)}
+              className="tooltip"
+              data-tip="Cycle this file's hypothetical speed limit"
+              style={limitBtn}
+              onClick={() => stepLimit(d.id, popHypLimit(d))}
+            >
+              {limitLabel(popHypLimit(d))}
+            </button>
+          )}
+        </div>
+        <div style={{ color: '#5b6b84', fontSize: 10, marginTop: 2 }}>
+          {known
+            ? `${fmt.formatBytes(d.etaRemaining)} of ${fmt.formatBytes(d.etaTotal)} left · ${fmt.formatBytes(d.etaRateBps)}/s ${ETA_BASIS_WORDS[d.etaBasis] || d.etaBasis}`
+            : 'starts after known-size files'}
+        </div>
+        <div style={{ height: 4, borderRadius: 99, background: '#16253d', marginTop: 5, overflow: 'hidden' }}>
+          <div
+            data-testid="dl-smart-bar"
+            style={{
+              height: '100%',
+              width: known && popMaxEta > 0 ? `${Math.max(4, Math.round((eta / popMaxEta) * 100))}%` : '100%',
+              background: known ? '#22d3ee' : 'rgba(34,211,238,0.25)',
+              ...(known ? {} : { animation: 'indeterminate 1.4s ease-in-out infinite' }),
+            }}
+          />
+        </div>
+      </div>
+    );
   };
   if (!downloads.length) return null;
 
@@ -331,53 +424,34 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               <I.close size={13} />
             </button>
           </div>
-          {displayRows.map((d) => {
-            const eta = d.etaSeconds;
-            const known = eta != null && d.etaTotal != null;
-            const hypLimit = previewPatch[d.id] !== undefined ? previewPatch[d.id] : d.limit !== undefined ? d.limit : d.maxBytesPerSec;
-            return (
-              <div key={d.id} data-testid="dl-smart-row" data-id={d.id} style={{ padding: '6px 0', borderBottom: '1px solid #16253d' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span title={d.name} style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {d.name}
-                  </span>
-                  <span data-testid="dl-smart-row-eta" style={{ color: '#7ce7f7', fontSize: 10.5, fontWeight: 650, whiteSpace: 'nowrap' }}>
-                    {known ? `~${fmtEta(eta)}` : 'size unknown'}
-                  </span>
-                  {whatIf && (
-                    <button
-                      type="button"
-                      data-testid="dl-whatif-step"
-                      data-id={d.id}
-                      data-limit={hypLimit}
-                      className="tooltip"
-                      data-tip="Cycle this file's hypothetical speed limit"
-                      style={limitBtn}
-                      onClick={() => stepLimit(d.id, hypLimit)}
-                    >
-                      {limitLabel(hypLimit)}
-                    </button>
+          {whatIf
+            ? folderGroups.map((g) => (
+                <div key={`g-${g.dir}`}>
+                  {g.rows.length > 1 && (
+                    <div data-testid="dl-whatif-folder" data-dir={g.dir} style={folderHeader}>
+                      <I.folder size={10} style={{ color: '#5b7a9a', flexShrink: 0 }} />
+                      <span title={g.dir} style={{ flex: 1, minWidth: 0, color: '#8494ab', fontSize: 9.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {g.dir}
+                      </span>
+                      <span style={{ color: '#5b6b84', fontSize: 9.5, flexShrink: 0 }}>{g.rows.length} files</span>
+                      <button
+                        type="button"
+                        data-testid="dl-whatif-folder-step"
+                        data-dir={g.dir}
+                        data-limit={popHypLimit(g.rows[0])}
+                        className="tooltip"
+                        data-tip="Set every file in this folder to one speed limit"
+                        style={limitBtn}
+                        onClick={() => stepFolderLimit(g.dir, popHypLimit(g.rows[0]))}
+                      >
+                        {limitLabel(popHypLimit(g.rows[0]))}
+                      </button>
+                    </div>
                   )}
+                  {g.rows.map((d) => popRow(d))}
                 </div>
-                <div style={{ color: '#5b6b84', fontSize: 10, marginTop: 2 }}>
-                  {known
-                    ? `${fmt.formatBytes(d.etaRemaining)} of ${fmt.formatBytes(d.etaTotal)} left · ${fmt.formatBytes(d.etaRateBps)}/s ${ETA_BASIS_WORDS[d.etaBasis] || d.etaBasis}`
-                    : 'starts after known-size files'}
-                </div>
-                <div style={{ height: 4, borderRadius: 99, background: '#16253d', marginTop: 5, overflow: 'hidden' }}>
-                  <div
-                    data-testid="dl-smart-bar"
-                    style={{
-                      height: '100%',
-                      width: known && popMaxEta > 0 ? `${Math.max(4, Math.round((eta / popMaxEta) * 100))}%` : '100%',
-                      background: known ? '#22d3ee' : 'rgba(34,211,238,0.25)',
-                      ...(known ? {} : { animation: 'indeterminate 1.4s ease-in-out infinite' }),
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+              ))
+            : displayRows.map((d) => popRow(d))}
           {whatIf ? (
             <div style={{ marginTop: 6 }}>
               <div style={{ color: '#f5d78e', fontSize: 9.5, lineHeight: 1.45 }}>
@@ -390,6 +464,49 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                 <button type="button" data-testid="dl-whatif-reset" style={resetBtn} onClick={resetPreview}>
                   Reset
                 </button>
+              </div>
+              <div style={{ marginTop: 9, borderTop: '1px solid #16253d', paddingTop: 8 }}>
+                <div style={{ color: '#cfe3f7', fontSize: 10.5, fontWeight: 650, marginBottom: 6 }}>Queue plans</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                  <input
+                    data-testid="dl-plan-name"
+                    value={planName}
+                    onChange={(e) => setPlanName(e.target.value)}
+                    placeholder="Plan name…"
+                    style={planInput}
+                  />
+                  <button type="button" data-testid="dl-plan-save" style={applyBtn} onClick={savePlan}>
+                    Save patch
+                  </button>
+                </div>
+                {planNames.length === 0 ? (
+                  <div style={{ color: '#5b6b84', fontSize: 9.5 }}>
+                    No saved plans yet — apply a patch, then save it to reuse the limits later.
+                  </div>
+                ) : (
+                  planNames.map((name) => (
+                    <div key={name} data-testid="dl-plan-row" data-name={name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span title={name} style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {name}
+                      </span>
+                      <span style={{ color: '#5b6b84', fontSize: 9.5, flexShrink: 0 }}>{((queuePlans || {})[name] || []).length} files</span>
+                      <button
+                        type="button"
+                        data-testid="dl-plan-reapply"
+                        data-name={name}
+                        className="tooltip"
+                        data-tip="Re-apply this plan's limits to the current queue"
+                        style={{ ...applyBtn, height: 20, padding: '0 8px', fontSize: 9.5 }}
+                        onClick={() => reapplyPlan(name)}
+                      >
+                        <I.refresh size={10} /> Re-apply
+                      </button>
+                      <button type="button" data-testid="dl-plan-delete" data-name={name} aria-label="Delete plan" style={miniBtn} onClick={() => deletePlan(name)}>
+                        <I.close size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           ) : (
@@ -839,6 +956,25 @@ const applyBtn = {
   fontSize: 10,
   fontWeight: 650,
   cursor: 'pointer',
+};
+const folderHeader = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '5px 2px 3px',
+  borderTop: '1px solid #16253d',
+};
+const planInput = {
+  flex: 1,
+  minWidth: 0,
+  height: 22,
+  padding: '0 8px',
+  borderRadius: 7,
+  background: '#0b1526',
+  border: '1px solid #22314b',
+  color: '#cfe3f7',
+  fontSize: 10.5,
+  outline: 'none',
 };
 const resetBtn = {
   display: 'inline-flex',

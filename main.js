@@ -499,6 +499,37 @@ function registerIpc() {
   // applied until the tray's Apply calls download:limit per id.
   handle('downloads:previewQueue', ({ limits }) => downloads.previewQueueOrder(limits || {}));
 
+  // Named queue plans: a saved what-if patch, persisted keyed by
+  // destination path (ids are transient across restarts) so a plan can be
+  // recalled and re-applied whenever the same files are queued again.
+  handle('queuePlans:save', ({ name, patch }) => {
+    const key = String(name || '').trim();
+    if (!key) throw new Error('Give the plan a name first.');
+    const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
+    plans[key] = downloads.planEntries(patch || {});
+    storage.replacePrefs('queuePlans', plans);
+    return plans;
+  });
+
+  handle('queuePlans:list', () => storage.getPrefs().queuePlans || {});
+
+  handle('queuePlans:apply', ({ name }) => {
+    const key = String(name || '').trim();
+    const plans = storage.getPrefs().queuePlans || {};
+    const entries = plans[key];
+    if (!entries || !entries.length) throw new Error('No such plan.');
+    const applied = downloads.applyPlanEntries(entries, (entry, kind) => broadcastDownloads(kind, entry.id));
+    return { applied, snapshot: downloads.snapshot() };
+  });
+
+  handle('queuePlans:delete', ({ name }) => {
+    const key = String(name || '').trim();
+    const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
+    delete plans[key];
+    storage.replacePrefs('queuePlans', plans);
+    return plans;
+  });
+
   handle('downloads:clear', () => {
     downloads.clearFinished();
     return downloads.snapshot();
