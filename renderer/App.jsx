@@ -151,9 +151,9 @@ function App() {
   };
   // Named queue plans: save / recall / re-apply a what-if patch. The plans
   // live in prefs (keyed by destination path), so they survive restarts.
-  const savePlan = async (name, patch) => {
+  const savePlan = async (name, patch, folderPatch) => {
     try {
-      await api.saveQueuePlan(name, patch || {});
+      await api.saveQueuePlan(name, patch || {}, folderPatch || {});
       await refreshPrefs();
     } catch (err) {
       showToast(`Plan save failed — ${(err && err.message) || 'unknown error'}`);

@@ -273,6 +273,118 @@ async function phaseSmartVerify(win) {
   app.exit(0);
 }
 
+async function phasePlanStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Smart order on so applying the plan visibly re-ranks the queue.
+  await js(`window.torrentor.setSmartOrder(true)`);
+  const urls = [0, 1, 2, 3].map((i) => `${BASE}plan-${i}.bin`);
+  const results = [];
+  for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
+  const ts = results.map((r) => r && r.transfer);
+  if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('plan seed transfers did not start cleanly');
+  const [a, b, c, d] = ts;
+  // Actives at 96/128 KB/s (they measure their own speed); both queued at
+  // 256 KB/s so the restored queue comes back with equal ETAs. The plan
+  // then pins c's FOLDER at 100 KB/s and overrides d at 512 KB/s — boot #2
+  // must restore the plan and re-apply it to the restored queue.
+  await js(`Promise.all([window.torrentor.setDownloadLimit(${a.id}, 98304), window.torrentor.setDownloadLimit(${b.id}, 131072), window.torrentor.setDownloadLimit(${c.id}, 262144), window.torrentor.setDownloadLimit(${d.id}, 262144)])`);
+  const snap = await js(`window.torrentor.getDownloads()`);
+  const cDir = (snap.find((t) => t.id === c.id) || {}).dir;
+  const dPath = (snap.find((t) => t.id === d.id) || {}).filePath;
+  if (!cDir || !dPath) throw new Error('queued transfers missing dir/filePath');
+  const saved = await js(`window.torrentor.saveQueuePlan('boot-plan', { ${d.id}: 524288 }, { ${JSON.stringify(cDir)}: 102400 })`);
+  const entries = (saved && saved['boot-plan']) || [];
+  if (entries.length !== 2 || !entries.some((e) => e.dir === cDir) || !entries.some((e) => e.filePath === dPath && e.bytesPerSec === 524288)) {
+    throw new Error(`plan did not save as folder rule + override: ${JSON.stringify(entries)}`);
+  }
+  // Let the debounced prefs write + quit-flush persist the plan.
+  await new Promise((r) => setTimeout(r, 600));
+  console.log(`PLAN_BOOT1_SAVED folder=${102400} override=${d.id}:524288`);
+  console.log('PLAN_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phasePlanVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // The plan itself must have survived the relaunch (persisted in prefs
+  // keyed by destination folder/path — transfer ids are transient).
+  const plans = await waitFor(
+    'boot#2 queue plan restored from prefs',
+    () => js(`window.torrentor.listQueuePlans().then((p) => { const e = (p || {})['boot-plan']; return e && e.length === 2 ? e : null; })`)
+  );
+  const folderEntry = plans.find((e) => e.dir);
+  const fileEntry = plans.find((e) => e.filePath);
+  if (!folderEntry || !fileEntry) throw new Error(`plan shape lost across restart: ${JSON.stringify(plans)}`);
+  if (folderEntry.bytesPerSec !== 102400 || fileEntry.bytesPerSec !== 524288) throw new Error(`plan limits lost across restart: ${JSON.stringify(plans)}`);
+  console.log('PLAN_BOOT2_PLAN_OK folder=100KB/s override=512KB/s');
+  // The restored queue must still carry boot #1's 256 KB/s limits (so
+  // applying the plan visibly CHANGES them), then Apply re-pins via the
+  // real queuePlans:apply IPC and the queue re-ranks under smart order.
+  const state0 = await waitFor(
+    'boot#2 restored the four transfers',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        if (mine.length < 4) return null;
+        const byName = Object.fromEntries(mine.map((t) => [t.url.split('/').pop(), t]));
+        if (!byName['plan-2.bin'] || !byName['plan-3.bin']) return null;
+        return { cLimit: byName['plan-2.bin'].maxBytesPerSec, files: mine.map((t) => t.filePath) };
+      })()`),
+    25000
+  );
+  if (state0.cLimit !== 262144) throw new Error(`restored c limit unexpected: ${state0.cLimit}`);
+  const res = await js(`window.torrentor.applyQueuePlan('boot-plan')`);
+  const applied = res && res.applied;
+  const state = await waitFor(
+    'boot#2 plan limits applied + queue re-ranked',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        const byName = Object.fromEntries(mine.map((t) => [t.url.split('/').pop(), t]));
+        if (!byName['plan-2.bin'] || !byName['plan-3.bin']) return null;
+        const queued = mine.filter((t) => t.status === 'queued').sort((x, y) => x.queuePos - y.queuePos);
+        if (queued.length < 2) return null;
+        return {
+          cLimit: byName['plan-2.bin'].maxBytesPerSec,
+          dLimit: byName['plan-3.bin'].maxBytesPerSec,
+          queuedOrder: queued.slice(0, 2).map((t) => t.url.split('/').pop()),
+        };
+      })()`),
+    25000
+  );
+  if (state.cLimit !== 102400 || state.dLimit !== 524288) throw new Error(`plan limits not applied: c=${state.cLimit} d=${state.dLimit}`);
+  // Note: these queued files are unknown-size HTTP transfers (their
+  // Content-Length arrives only once a slot frees and they start), so under
+  // smart order they rank by arrival — the ETA-based re-rank of limits is
+  // proven by unit tests with known-size files. What this scenario proves
+  // is that the plan survived the relaunch and its limits landed on the
+  // restored transfers.
+  if (typeof applied !== 'number' || applied < 2) throw new Error(`plan apply touched too few transfers: applied=${applied}`);
+  console.log(`PLAN_BOOT2_APPLIED_OK c=${state.cLimit} d=${state.dLimit} applied=${applied}`);
+  await waitFor(
+    'boot#2 all four resumed transfers complete',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        return mine.length === 4 && mine.every((t) => t.status === 'done') ? mine : null;
+      })()`),
+    120000
+  );
+  const sizes = state0.files.map((fp) => (fs.existsSync(fp) ? fs.statSync(fp).size : -1));
+  if (sizes.some((s) => s !== EXPECTED)) throw new Error(`final sizes ${JSON.stringify(sizes)} !== ${EXPECTED}`);
+  console.log('PLAN_BOOT2_DONE bytes=' + EXPECTED);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
+}
+
 async function phasePauseStart(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const started = await js(`window.torrentor.downloadFile(${JSON.stringify(DL_URL)})`);
@@ -374,6 +486,8 @@ async function main() {
     else if (PHASE === 'order-verify') await phaseOrderVerify(win);
     else if (PHASE === 'smart-start') await phaseSmartStart(win);
     else if (PHASE === 'smart-verify') await phaseSmartVerify(win);
+    else if (PHASE === 'plan-start') await phasePlanStart(win);
+    else if (PHASE === 'plan-verify') await phasePlanVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));

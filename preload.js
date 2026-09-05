@@ -72,7 +72,7 @@ contextBridge.exposeInMainWorld('torrentor', {
   getDownloadStats: bridge('downloads:stats'),
   setSmartOrder: bridge('downloads:smartOrder', (on) => ({ on })),
   previewQueue: bridge('downloads:previewQueue', (limits) => ({ limits })),
-  saveQueuePlan: bridge('queuePlans:save', (name, patch) => ({ name, patch })),
+  saveQueuePlan: bridge('queuePlans:save', (name, patch, folderPatch) => ({ name, patch, folderPatch })),
   listQueuePlans: bridge('queuePlans:list'),
   applyQueuePlan: bridge('queuePlans:apply', (name) => ({ name })),
   deleteQueuePlan: bridge('queuePlans:delete', (name) => ({ name })),

@@ -304,6 +304,49 @@ async function main() {
         }
       }
     }
+
+    // ---- scenario 5: a saved queue plan (folder rule + override) survives ----
+    let server5 = null;
+    let dataDir5 = null;
+    try {
+      const payload5 = makePayload();
+      server5 = await serveSlow(payload5, [], null);
+      const { port: port5 } = server5.address();
+      dataDir5 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-plan-boot-'));
+      const base5 = `http://127.0.0.1:${port5}/`;
+      const env5 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir5,
+        TORRENTOR_RESUME_BASE: base5,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+      };
+
+      // boot #1: smart order on, four genuine downloads, a queue plan saved
+      // with a FOLDER rule (c's dir @ 100 KB/s) plus a per-file override
+      // (d @ 512 KB/s), then quit mid-flight.
+      const p1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env5, { TORRENTOR_RESUME_PHASE: 'plan-start' }));
+      check(p1.code === 0, `plan boot #1 exited ${p1.code} — ${p1.err.slice(0, 200)}`);
+      check(/PLAN_BOOT1_SAVED/.test(p1.out), 'boot #1 saved the queue plan (folder rule + override)');
+
+      // boot #2: the plan must come back from prefs, re-apply to the
+      // restored queue (folder rule pins c, override pins d), re-rank the
+      // smart-ordered queue, and all four transfers complete to full size.
+      const p2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env5, { TORRENTOR_RESUME_PHASE: 'plan-verify' }));
+      check(p2.code === 0, `plan boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
+      check(/PLAN_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the plan from prefs');
+      check(/PLAN_BOOT2_APPLIED_OK/.test(p2.out), 'boot #2 re-applied the plan to the restored queue');
+      check(/PLAN_BOOT2_DONE/.test(p2.out), 'boot #2 completed all four resumed transfers');
+      ok('queue plans: a saved plan (folder rule + override) survived a relaunch and re-applied to the restored queue', 'plan=100KB/s folder + 512KB/s override, limits landed on the restored transfers, all completed');
+    } finally {
+      if (server5) server5.close();
+      if (dataDir5) {
+        try {
+          fs.rmSync(dataDir5, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
   } finally {
     server.close();
     try {

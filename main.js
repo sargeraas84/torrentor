@@ -502,11 +502,11 @@ function registerIpc() {
   // Named queue plans: a saved what-if patch, persisted keyed by
   // destination path (ids are transient across restarts) so a plan can be
   // recalled and re-applied whenever the same files are queued again.
-  handle('queuePlans:save', ({ name, patch }) => {
+  handle('queuePlans:save', ({ name, patch, folderPatch }) => {
     const key = String(name || '').trim();
     if (!key) throw new Error('Give the plan a name first.');
     const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
-    plans[key] = downloads.planEntries(patch || {});
+    plans[key] = downloads.planEntries(patch || {}, folderPatch || {});
     storage.replacePrefs('queuePlans', plans);
     return plans;
   });

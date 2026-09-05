@@ -1329,6 +1329,35 @@ async function main() {
     dm.setSmartOrder(false);
   });
 
+  ok('queue plans: folder rules cover later-queued files, per-file overrides win', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const dirX = path.join(dmDir, 'shared');
+    fs.mkdirSync(dirX, { recursive: true });
+    const a = dm.startDownload('demo:content', path.join(dirX, 'a.txt'), null, { maxBytesPerSec: 51200 });
+    const b = dm.startDownload('demo:content', path.join(dirX, 'b.txt'), null, { maxBytesPerSec: 51200 });
+    // Folder rule pins dirX at 100 KB/s; b gets a per-file override at 1 MB/s.
+    const entries = dm.planEntries({ [b.id]: 1024 * 1024 }, { [dirX]: 102400 });
+    assert.strictEqual(entries.length, 2, 'folder rule + one override = 2 entries');
+    assert.deepStrictEqual(entries.find((e) => e.dir === dirX), { dir: dirX, bytesPerSec: 102400 }, 'folder rule stored as { dir, bytesPerSec }');
+    assert.deepStrictEqual(entries.find((e) => e.filePath === b.filePath), { filePath: b.filePath, bytesPerSec: 1024 * 1024 }, 'deviation stored as a per-file override');
+    assert.ok(!entries.some((e) => e.filePath === a.filePath), 'a is covered by the folder rule — no redundant filePath entry');
+    const applied = dm.applyPlanEntries(entries);
+    assert.ok(applied >= 2, `both files touched (applied ${applied})`);
+    assert.strictEqual(dm.getDownload(a.id).maxBytesPerSec, 102400, 'folder rule pins a');
+    assert.strictEqual(dm.getDownload(b.id).maxBytesPerSec, 1024 * 1024, 'override wins for b (applied after the folder rule)');
+    // A file queued into the folder LATER is covered by the same rule.
+    const c = dm.startDownload('demo:content', path.join(dirX, 'c.txt'), null, { maxBytesPerSec: 51200 });
+    assert.strictEqual(c.status, 'queued', 'c queues behind the two active slots');
+    const applied2 = dm.applyPlanEntries(entries);
+    assert.ok(applied2 >= 3, `later-queued file also matched (applied ${applied2})`);
+    assert.strictEqual(dm.getDownload(c.id).maxBytesPerSec, 102400, 'folder rule pins the later-queued file');
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);

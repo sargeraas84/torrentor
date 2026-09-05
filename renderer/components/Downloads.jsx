@@ -182,6 +182,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const [showQueueInfo, setShowQueueInfo] = useState(false); // smart-order popover
   const [whatIf, setWhatIf] = useState(false); // popover what-if mode
   const [previewPatch, setPreviewPatch] = useState({}); // hypothetical limits {id: bps}
+  const [folderPatch, setFolderPatch] = useState({}); // hypothetical folder rules {dir: bps}
   const [previewOrder, setPreviewOrder] = useState(null); // previewQueueOrder result
   const [planName, setPlanName] = useState(''); // save-as-plan input
   // Rows shown in the popover: the live queue, or (in what-if mode) the
@@ -221,6 +222,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     if (whatIf) {
       setWhatIf(false);
       setPreviewPatch({});
+      setFolderPatch({});
       setPreviewOrder(null);
     } else {
       setWhatIf(true);
@@ -239,10 +241,14 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   };
   const resetPreview = async () => {
     setPreviewPatch({});
+    setFolderPatch({});
     setPreviewOrder(await fetchPreview({}));
   };
   // Folder stepper: cycle one hypothetical limit and apply it to every
-  // queued file headed to the same folder.
+  // queued file headed to the same folder. The folder-level value is also
+  // remembered (folderPatch) so saving a plan stores a FOLDER rule — one
+  // that keeps covering files queued into that folder later — with only
+  // genuine per-file deviations stored as overrides.
   const stepFolderLimit = async (dir, current) => {
     const group = (folderGroups || []).find((g) => g.dir === dir);
     if (!group) return;
@@ -250,6 +256,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     const patch = { ...previewPatch };
     for (const d of group.rows) patch[d.id] = next;
     setPreviewPatch(patch);
+    setFolderPatch((f) => ({ ...f, [dir]: next }));
     setPreviewOrder(await fetchPreview(patch));
   };
   // Queue plans: save the current patch under a name, re-apply a saved
@@ -257,7 +264,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const savePlan = async () => {
     const name = planName.trim();
     if (!name || !onSavePlan) return;
-    await onSavePlan(name, previewPatch);
+    await onSavePlan(name, previewPatch, folderPatch);
     setPlanName('');
   };
   const reapplyPlan = async (name) => {

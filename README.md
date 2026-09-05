@@ -114,14 +114,16 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 87 pure-Node checks (no window, no network)
+npm test           # 88 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   a genuine download, quits mid-flight, relaunches, and
                     #   asserts the .part auto-resumed to the full file — plus a
-                    #   paused transfer that parks across a restart, and a
+                    #   paused transfer that parks across a restart, a
                     #   drag-reordered queue with per-transfer limits that
-                    #   both survive a relaunch
+                    #   survive a relaunch, smart-order learned speeds that
+                    #   survive, and a saved queue plan (folder rule +
+                    #   override) re-applied to the restored queue
 npm run test:ui    # drives the real window (real engines): search, favorites,
                     #   VPN check, paging, thumbnails, paced demo (paused &
                     #   resumed, queue reordered by drag-and-drop + smart
