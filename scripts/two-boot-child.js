@@ -292,10 +292,11 @@ async function phasePlanStart(win) {
   const cDir = (snap.find((t) => t.id === c.id) || {}).dir;
   const dPath = (snap.find((t) => t.id === d.id) || {}).filePath;
   if (!cDir || !dPath) throw new Error('queued transfers missing dir/filePath');
-  const saved = await js(`window.torrentor.saveQueuePlan('boot-plan', { ${d.id}: 524288 }, { ${JSON.stringify(cDir)}: 102400 })`);
-  const entries = (saved && saved['boot-plan']) || [];
+  const saved = await js(`window.torrentor.saveQueuePlan('boot-plan', { ${d.id}: 524288 }, { ${JSON.stringify(cDir)}: 102400 }, null)`);
+  const rec = (saved && saved['boot-plan']) || { entries: [] };
+  const entries = rec.entries || [];
   if (entries.length !== 2 || !entries.some((e) => e.dir === cDir) || !entries.some((e) => e.filePath === dPath && e.bytesPerSec === 524288)) {
-    throw new Error(`plan did not save as folder rule + override: ${JSON.stringify(entries)}`);
+    throw new Error(`plan did not save as folder rule + override: ${JSON.stringify(rec)}`);
   }
   // Let the debounced prefs write + quit-flush persist the plan.
   await new Promise((r) => setTimeout(r, 600));
@@ -309,14 +310,16 @@ async function phasePlanVerify(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   // The plan itself must have survived the relaunch (persisted in prefs
   // keyed by destination folder/path — transfer ids are transient).
-  const plans = await waitFor(
+  const planRec = await waitFor(
     'boot#2 queue plan restored from prefs',
-    () => js(`window.torrentor.listQueuePlans().then((p) => { const e = (p || {})['boot-plan']; return e && e.length === 2 ? e : null; })`)
+    () => js(`window.torrentor.listQueuePlans().then((p) => { const rec = (p || {})['boot-plan']; return rec && rec.entries && rec.entries.length === 2 ? rec : null; })`)
   );
+  const plans = planRec.entries;
   const folderEntry = plans.find((e) => e.dir);
   const fileEntry = plans.find((e) => e.filePath);
-  if (!folderEntry || !fileEntry) throw new Error(`plan shape lost across restart: ${JSON.stringify(plans)}`);
-  if (folderEntry.bytesPerSec !== 102400 || fileEntry.bytesPerSec !== 524288) throw new Error(`plan limits lost across restart: ${JSON.stringify(plans)}`);
+  if (!folderEntry || !fileEntry) throw new Error(`plan shape lost across restart: ${JSON.stringify(planRec)}`);
+  if (folderEntry.bytesPerSec !== 102400 || fileEntry.bytesPerSec !== 524288) throw new Error(`plan limits lost across restart: ${JSON.stringify(planRec)}`);
+  if (planRec.schedule !== null) throw new Error(`plan schedule should be null here: ${JSON.stringify(planRec)}`);
   console.log('PLAN_BOOT2_PLAN_OK folder=100KB/s override=512KB/s');
   // The restored queue must still carry boot #1's 256 KB/s limits (so
   // applying the plan visibly CHANGES them), then Apply re-pins via the

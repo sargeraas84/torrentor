@@ -69,13 +69,15 @@ contextBridge.exposeInMainWorld('torrentor', {
 
   // ----- direct downloads (main-process streaming; hosts allowlisted)
   getDownloads: bridge('downloads:list'),
+  getAppliedPlan: bridge('downloads:appliedPlan'),
   getDownloadStats: bridge('downloads:stats'),
   setSmartOrder: bridge('downloads:smartOrder', (on) => ({ on })),
   previewQueue: bridge('downloads:previewQueue', (limits) => ({ limits })),
-  saveQueuePlan: bridge('queuePlans:save', (name, patch, folderPatch) => ({ name, patch, folderPatch })),
+  saveQueuePlan: bridge('queuePlans:save', (name, patch, folderPatch, schedule) => ({ name, patch, folderPatch, schedule })),
   listQueuePlans: bridge('queuePlans:list'),
   applyQueuePlan: bridge('queuePlans:apply', (name) => ({ name })),
   deleteQueuePlan: bridge('queuePlans:delete', (name) => ({ name })),
+  clearAppliedQueuePlan: bridge('queuePlans:clearApplied'),
   clearDownloads: bridge('downloads:clear'),
   onDownloadsChanged: (cb) => subscribe('downloads:changed', cb),
   itemFiles: bridge('download:itemFiles', (sourceId, itemId) => ({ sourceId, itemId })),

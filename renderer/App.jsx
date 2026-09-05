@@ -55,6 +55,9 @@ function App() {
   const [downloads, setDownloads] = useState([]);
   const [filesItem, setFilesItem] = useState(null);
   const [dlStats, setDlStats] = useState(null);
+  // The currently applied queue plan (name surfaced on chips + a tray
+  // header switcher; its schedule may be throttling the whole queue now).
+  const [appliedPlan, setAppliedPlan] = useState({ name: '', schedule: null, windowActive: false, capNow: 0 });
 
   const seqRef = useRef(0);
   const toastTimer = useRef(null);
@@ -151,9 +154,9 @@ function App() {
   };
   // Named queue plans: save / recall / re-apply a what-if patch. The plans
   // live in prefs (keyed by destination path), so they survive restarts.
-  const savePlan = async (name, patch, folderPatch) => {
+  const savePlan = async (name, patch, folderPatch, schedule) => {
     try {
-      await api.saveQueuePlan(name, patch || {}, folderPatch || {});
+      await api.saveQueuePlan(name, patch || {}, folderPatch || {}, schedule || null);
       await refreshPrefs();
     } catch (err) {
       showToast(`Plan save failed — ${(err && err.message) || 'unknown error'}`);
@@ -163,8 +166,18 @@ function App() {
     try {
       const res = await api.applyQueuePlan(name);
       if (res && res.snapshot) setDownloads(res.snapshot);
+      if (res && res.appliedPlan) setAppliedPlan(res.appliedPlan);
     } catch (err) {
       showToast(`Plan apply failed — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
+  const clearAppliedPlan = async () => {
+    try {
+      const res = await api.clearAppliedQueuePlan();
+      if (res && res.snapshot) setDownloads(res.snapshot);
+      if (res && res.appliedPlan) setAppliedPlan(res.appliedPlan);
+    } catch {
+      /* non-fatal */
     }
   };
   const deletePlan = async (name) => {
@@ -259,8 +272,11 @@ function App() {
     });
     const unsubHealth = api.onHealthProgress((list) => setHealth(list || []));
     const unsubMax = api.onMaximized(setMaxed);
-    const unsubDl = api.onDownloadsChanged(({ snapshot, kind }) => {
+    const unsubDl = api.onDownloadsChanged(({ snapshot, kind, appliedPlan }) => {
       setDownloads(snapshot || []);
+      // The applied queue plan (name badge + schedule window) rides every
+      // broadcast, so a delete/clear/apply elsewhere stays in sync.
+      if (appliedPlan) setAppliedPlan(appliedPlan);
       // A completed transfer moves bytes between sources' tallies — keep
       // the Library panel fresh without polling.
       if (kind === 'done') refreshDlStats();
@@ -268,6 +284,12 @@ function App() {
     api
       .getDownloads()
       .then((list) => setDownloads(list || []))
+      .catch(() => {
+        /* non-fatal */
+      });
+    api
+      .getAppliedPlan()
+      .then((info) => info && setAppliedPlan(info))
       .catch(() => {
         /* non-fatal */
       });
@@ -715,7 +737,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} />
 
       {settingsOpen && (
         <SettingsModal

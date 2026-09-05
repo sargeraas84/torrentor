@@ -12,6 +12,10 @@ const api = window.torrentor;
 // scheduler's reasoning is visible instead of a magic number.
 const ETA_BASIS_WORDS = {
   limit: 'limit',
+  // The applied plan's schedule window is the binding cap (the file's own
+  // limit is higher or unset) — say so instead of claiming the file chose
+  // that speed.
+  window: 'plan window',
   measured: 'measured',
   shared: 'live network',
   baseline: 'assumed',
@@ -170,7 +174,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -185,6 +189,20 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const [folderPatch, setFolderPatch] = useState({}); // hypothetical folder rules {dir: bps}
   const [previewOrder, setPreviewOrder] = useState(null); // previewQueueOrder result
   const [planName, setPlanName] = useState(''); // save-as-plan input
+  // Optional ACTIVE-WINDOW rule on the plan being saved (e.g. a 'night'
+  // plan throttling the whole queue to 100 KB/s between 23:00 and 07:00).
+  const [planSchedule, setPlanSchedule] = useState(null); // { from, to, bytesPerSec } | null
+  // Tolerant access to a saved plan: records are { entries, schedule }
+  // now; plans saved before schedules existed are plain entry arrays.
+  const planRec = (name) => {
+    const rec = (queuePlans || {})[name];
+    if (!rec) return { entries: [], schedule: null };
+    if (Array.isArray(rec)) return { entries: rec, schedule: null };
+    return { entries: rec.entries || [], schedule: rec.schedule || null };
+  };
+  const planFileCount = (name) => (planRec(name).entries || []).length;
+  const planScheduleText = (s) =>
+    s && s.from && s.to ? `${s.from}–${s.to} · ${fmt.formatBytes(s.bytesPerSec)}/s whole-queue cap` : '';
   // Rows shown in the popover: the live queue, or (in what-if mode) the
   // hypothetical re-rank. Bars scale to the longest estimated wait.
   const displayRows = whatIf ? previewOrder || queuedItems : queuedItems;
@@ -208,6 +226,10 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
       })()
     : null;
   const planNames = Object.keys(queuePlans || {});
+  // Which plan is applied right now ('' when none) + whether its schedule
+  // window is currently capping the whole queue.
+  const appliedName = (appliedPlan && appliedPlan.name) || '';
+  const appliedSchedule = (appliedPlan && appliedPlan.schedule) || null;
   // What-if preview plumbing: hypothetical limits go to the manager (which
   // ranks exactly as Apply would) and come back as an ordered row list.
   const fetchPreview = async (patch) => {
@@ -259,13 +281,27 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     setFolderPatch((f) => ({ ...f, [dir]: next }));
     setPreviewOrder(await fetchPreview(patch));
   };
-  // Queue plans: save the current patch under a name, re-apply a saved
-  // plan, or delete one.
+  // Queue plans: save the current patch (+ optional active-window rule)
+  // under a name, re-apply a saved plan, or delete one.
   const savePlan = async () => {
     const name = planName.trim();
     if (!name || !onSavePlan) return;
-    await onSavePlan(name, previewPatch, folderPatch);
+    await onSavePlan(name, previewPatch, folderPatch, planSchedule);
     setPlanName('');
+    setPlanSchedule(null);
+  };
+  // Schedule editor: cycle the whole-queue cap while editing a window, or
+  // toggle the editor open/closed (defaults to a 23:00–07:00 'night' cap).
+  const stepPlanScheduleBps = () => {
+    if (!planSchedule) return;
+    setPlanSchedule({ ...planSchedule, bytesPerSec: nextPreset(planSchedule.bytesPerSec) });
+  };
+  const togglePlanSchedule = () => {
+    if (planSchedule) {
+      setPlanSchedule(null);
+    } else {
+      setPlanSchedule({ from: '23:00', to: '07:00', bytesPerSec: 102400 });
+    }
   };
   const reapplyPlan = async (name) => {
     if (onReapplyPlan) await onReapplyPlan(name);
@@ -395,6 +431,62 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
           </button>
         )}
       </div>
+      {(planNames.length > 0 || appliedName) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+          <div
+            data-testid="dl-plan-switch-box"
+            data-active={appliedName || ''}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              height: 20,
+              padding: '0 4px 0 8px',
+              borderRadius: 99,
+              fontSize: 10,
+              background: appliedName ? 'rgba(245,215,142,0.10)' : 'rgba(15,26,46,0.9)',
+              border: appliedName ? (appliedPlan && appliedPlan.windowActive ? '1px solid #f5d78e88' : '1px solid #f5d78e44') : '1px solid #22314b',
+              color: appliedName ? '#f5d78e' : '#8494ab',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <I.gauge size={10} style={{ flexShrink: 0 }} />
+            <select
+              data-testid="dl-plan-switch"
+              value={appliedName}
+              title={appliedName ? `Plan “${appliedName}” applied${appliedPlan && appliedPlan.windowActive ? ' — window cap active now' : ''}` : 'Apply a saved queue plan'}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '__clear') {
+                  if (onClearAppliedPlan) onClearAppliedPlan();
+                } else if (v) {
+                  reapplyPlan(v);
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: appliedName ? '#f5d78e' : '#8494ab',
+                fontSize: 10,
+                fontWeight: 650,
+                cursor: 'pointer',
+                padding: '0 2px',
+                maxWidth: 150,
+              }}
+            >
+              <option value="">{appliedName ? 'Applied' : 'Apply plan…'}</option>
+              {planNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+              {appliedName && planNames.indexOf(appliedName) < 0 && <option value={appliedName}>{appliedName}</option>}
+              {appliedName && <option value="__clear">Clear applied plan</option>}
+            </select>
+          </div>
+        </div>
+      )}
       {showQueueInfo && smartOrder && queuedItems.length > 0 && (
         <div
           data-testid="dl-smart-pop"
@@ -486,33 +578,90 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                     Save patch
                   </button>
                 </div>
+                {planSchedule ? (
+                  <div
+                    data-testid="dl-plan-schedule"
+                    data-from={planSchedule.from}
+                    data-to={planSchedule.to}
+                    data-bps={planSchedule.bytesPerSec}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 7 }}
+                  >
+                    <I.clock size={10} style={{ color: '#f5d78e', flexShrink: 0 }} />
+                    <span style={{ color: '#8494ab', fontSize: 9, flexShrink: 0 }}>window</span>
+                    <input
+                      data-testid="dl-plan-sched-from"
+                      type="time"
+                      value={planSchedule.from}
+                      onChange={(e) => setPlanSchedule((s) => (s ? { ...s, from: e.target.value } : s))}
+                      style={timeInput}
+                    />
+                    <span style={{ color: '#5b6b84', fontSize: 9, flexShrink: 0 }}>–</span>
+                    <input
+                      data-testid="dl-plan-sched-to"
+                      type="time"
+                      value={planSchedule.to}
+                      onChange={(e) => setPlanSchedule((s) => (s ? { ...s, to: e.target.value } : s))}
+                      style={timeInput}
+                    />
+                    <button
+                      type="button"
+                      data-testid="dl-plan-sched-bps"
+                      data-bps={planSchedule.bytesPerSec}
+                      className="tooltip"
+                      data-tip="Whole-queue cap while the window is active (a transfer's own lower limit still wins)"
+                      style={{ ...limitBtn, height: 18, padding: '0 6px', fontSize: 9 }}
+                      onClick={stepPlanScheduleBps}
+                    >
+                      {limitLabel(planSchedule.bytesPerSec)}
+                    </button>
+                    <button type="button" data-testid="dl-plan-sched-off" aria-label="Remove the schedule window" style={miniBtn} onClick={togglePlanSchedule}>
+                      <I.close size={10} />
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" data-testid="dl-plan-sched-on" style={addWinBtn} onClick={togglePlanSchedule}>
+                    + Window — cap the whole queue at set hours
+                  </button>
+                )}
                 {planNames.length === 0 ? (
                   <div style={{ color: '#5b6b84', fontSize: 9.5 }}>
                     No saved plans yet — apply a patch, then save it to reuse the limits later.
                   </div>
                 ) : (
-                  planNames.map((name) => (
-                    <div key={name} data-testid="dl-plan-row" data-name={name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span title={name} style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {name}
-                      </span>
-                      <span style={{ color: '#5b6b84', fontSize: 9.5, flexShrink: 0 }}>{((queuePlans || {})[name] || []).length} files</span>
-                      <button
-                        type="button"
-                        data-testid="dl-plan-reapply"
-                        data-name={name}
-                        className="tooltip"
-                        data-tip="Re-apply this plan's limits to the current queue"
-                        style={{ ...applyBtn, height: 20, padding: '0 8px', fontSize: 9.5 }}
-                        onClick={() => reapplyPlan(name)}
-                      >
-                        <I.refresh size={10} /> Re-apply
-                      </button>
-                      <button type="button" data-testid="dl-plan-delete" data-name={name} aria-label="Delete plan" style={miniBtn} onClick={() => deletePlan(name)}>
-                        <I.close size={12} />
-                      </button>
-                    </div>
-                  ))
+                  planNames.map((name) => {
+                    const rec = planRec(name);
+                    const schedText = planScheduleText(rec.schedule);
+                    return (
+                      <div key={name} data-testid="dl-plan-row" data-name={name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span
+                          title={name}
+                          style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}
+                        >
+                          {name}
+                          {schedText && (
+                            <span data-testid="dl-plan-row-sched" style={{ display: 'block', color: '#f5d78e', fontSize: 8.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {schedText}
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ color: '#5b6b84', fontSize: 9.5, flexShrink: 0 }}>{planFileCount(name)} files</span>
+                        <button
+                          type="button"
+                          data-testid="dl-plan-reapply"
+                          data-name={name}
+                          className="tooltip"
+                          data-tip="Apply this plan now — its window rule throttles the whole queue while active"
+                          style={{ ...applyBtn, height: 20, padding: '0 8px', fontSize: 9.5 }}
+                          onClick={() => reapplyPlan(name)}
+                        >
+                          <I.refresh size={10} /> Apply
+                        </button>
+                        <button type="button" data-testid="dl-plan-delete" data-name={name} aria-label="Delete plan" style={miniBtn} onClick={() => deletePlan(name)}>
+                          <I.close size={12} />
+                        </button>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -614,6 +763,22 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                           )
                         : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
                 </div>
+                {appliedName && (
+                  <div
+                    data-testid="dl-chip-plan"
+                    data-name={appliedName}
+                    data-window={appliedPlan && appliedPlan.windowActive ? '1' : '0'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, color: '#f5d78e', fontSize: 9.5, minWidth: 0 }}
+                  >
+                    <I.gauge size={9} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      plan “{appliedName}”
+                      {appliedPlan && appliedPlan.windowActive && appliedSchedule
+                        ? ` · window cap ${fmt.formatBytes(appliedSchedule.bytesPerSec)}/s now`
+                        : ''}
+                    </span>
+                  </div>
+                )}
               </div>
               {queued && !smartOrder && (
                 <>
@@ -982,6 +1147,32 @@ const planInput = {
   color: '#cfe3f7',
   fontSize: 10.5,
   outline: 'none',
+};
+const timeInput = {
+  width: 62,
+  height: 20,
+  padding: '0 3px',
+  borderRadius: 6,
+  background: '#0b1526',
+  border: '1px solid #22314b',
+  color: '#cfe3f7',
+  fontSize: 10,
+  outline: 'none',
+  flexShrink: 0,
+};
+const addWinBtn = {
+  display: 'block',
+  width: '100%',
+  height: 20,
+  marginBottom: 7,
+  borderRadius: 6,
+  background: 'rgba(245,215,142,0.07)',
+  border: '1px dashed #f5d78e55',
+  color: '#f5d78e',
+  fontSize: 9.5,
+  fontWeight: 600,
+  cursor: 'pointer',
+  textAlign: 'center',
 };
 const resetBtn = {
   display: 'inline-flex',

@@ -537,6 +537,43 @@ async function main() {
     6000
   );
   ok('queue plan recalled and re-applied', 'row1 back to 256 KB/s, row2 stays 512 KB/s');
+  // A plan can ALSO carry an active-window rule (a 'night' plan that caps
+  // the whole queue between two clock times). Reset the preview first so
+  // this plan is schedule-only, then save it with the default night window.
+  await click('[data-testid="download-tray"] [data-testid="dl-whatif-reset"]');
+  await wait(200);
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-sched-on"]');
+  const schedEditor = await waitFor(
+    'schedule window editor opens with a default night window',
+    `(() => { const w = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-schedule"]'); return w && w.getAttribute('data-from') === '23:00' && w.getAttribute('data-to') === '07:00' && w.getAttribute('data-bps') === '102400' ? true : null; })()`,
+    6000
+  );
+  if (!schedEditor) throw new Error('schedule editor did not open with defaults');
+  await setText('[data-testid="download-tray"] [data-testid="dl-plan-name"]', 'night-cap');
+  await wait(150);
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-save"]');
+  const schedSaved = await waitFor(
+    'schedule plan saved + listed with its window summary',
+    `(() => {
+      const row = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-row"]')].find((r) => r.getAttribute('data-name') === 'night-cap');
+      if (!row) return null;
+      const s = row.querySelector('[data-testid="dl-plan-row-sched"]');
+      return s && s.textContent.includes('23:00–07:00') ? { text: s.textContent.replace(/\s+/g, ' ').trim() } : null;
+    })()`,
+    6000
+  );
+  if (!schedSaved) throw new Error('schedule-plan save check failed');
+  ok('queue plan saved with an active-window schedule', schedSaved.text);
+  // Apply it from the list: the armed plan's name rides the broadcast onto
+  // every running tray chip as a small 'plan …' tag.
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-reapply"][data-name="night-cap"]');
+  const chipTag = await waitFor(
+    'applied plan name surfaces on tray chips',
+    `(() => { const tag = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"] [data-testid="dl-chip-plan"]'); return tag && tag.getAttribute('data-name') === 'night-cap' ? { name: tag.getAttribute('data-name'), window: tag.getAttribute('data-window') } : null; })()`,
+    6000
+  );
+  if (!chipTag) throw new Error('applied-plan chip tag missing');
+  ok('applied plan tag renders on tray chips', `plan ${chipTag.name} (window-active=${chipTag.window})`);
   await click('[data-testid="download-tray"] [data-testid="dl-plan-delete"][data-name="fast-track"]');
   await waitFor('plan deleted from the list', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-row"]')].some((r) => r.getAttribute('data-name') === 'fast-track')`, 6000);
   ok('queue plan deleted on demand');
@@ -547,6 +584,36 @@ async function main() {
   await waitFor('smart order toggles back off', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '0'`, 6000);
   await waitFor('eta reasoning clears when smart order turns off', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta"]')`, 6000);
   ok('smart order toggle flips the queue scheduler (tray)');
+  // The applied plan is switchable from the tray header too — one change
+  // event applies or clears the whole-queue pacing without the popover.
+  const switchSel = '[data-testid="download-tray"] [data-testid="dl-plan-switch"]';
+  await waitFor(
+    'tray-header plan switcher shows the applied plan',
+    `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); const sel = document.querySelector('${switchSel}'); if (!box || !sel) return null; const opts = [...sel.options].map((o) => o.value); return box.getAttribute('data-active') === 'night-cap' && opts.includes('night-cap') && sel.value === 'night-cap' ? { opts: opts.join('|') } : null; })()`,
+    6000
+  );
+  ok('tray header surfaces the applied plan (one-click switcher)');
+  await js(`(() => { const el = document.querySelector('${switchSel}'); if (!el) return false; el.value = '__clear'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor(
+    'clearing the applied plan from the header',
+    `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); const sel = document.querySelector('${switchSel}'); return box && sel && box.getAttribute('data-active') === '' && sel.value === '' ? true : null; })()`,
+    6000
+  );
+  ok('applied plan cleared from the tray header');
+  await js(`(() => { const el = document.querySelector('${switchSel}'); if (!el) return false; el.value = 'night-cap'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor(
+    'one-click re-applies the plan from the header',
+    `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); const sel = document.querySelector('${switchSel}'); return box && sel && box.getAttribute('data-active') === 'night-cap' && sel.value === 'night-cap' ? true : null; })()`,
+    6000
+  );
+  ok('tray header one-click swaps the whole queue onto a saved plan');
+  // Clear it again so the upcoming drain steps run unpaced.
+  await js(`(() => { const el = document.querySelector('${switchSel}'); if (!el) return false; el.value = '__clear'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor(
+    'plan cleared again for the drain steps',
+    `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); return box && box.getAttribute('data-active') === '' ? true : null; })()`,
+    6000
+  );
   // Lift every limit so the seeded batch drains fast, then confirm the
   // Library view's per-source tallies picked up all completed transfers.
   await js(`(async () => {

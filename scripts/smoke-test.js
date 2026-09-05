@@ -1358,6 +1358,59 @@ async function main() {
     dm.setSmartOrder(false);
   });
 
+  ok('plan schedules: window math, armed whole-queue cap, ETA basis flips to window', async () => {
+    // Pure clock/window math: parseClock normalizes HH:MM to minutes; the
+    // window is end-exclusive at `to` and overnight windows wrap midnight.
+    assert.strictEqual(dm.parseClock('23:00'), 23 * 60);
+    assert.strictEqual(dm.parseClock('7:30'), 7 * 60 + 30);
+    assert.strictEqual(dm.parseClock('99:99'), null, 'malformed clocks rejected');
+    const night = { from: '23:00', to: '07:00', bytesPerSec: 102400 };
+    assert.strictEqual(dm.scheduleWindowActive(night, 23 * 60 + 30), true, 'active inside the night window');
+    assert.strictEqual(dm.scheduleWindowActive(night, 2 * 60), true, 'overnight window stays active past midnight');
+    assert.strictEqual(dm.scheduleWindowActive(night, 7 * 60), false, 'end-exclusive at `to`');
+    assert.strictEqual(dm.scheduleWindowActive(night, 6 * 60 + 59), true, 'active one minute before `to`');
+    assert.strictEqual(dm.scheduleWindowActive(night, 12 * 60), false, 'inactive at noon');
+    assert.strictEqual(dm.scheduleWindowActive({ from: '00:00', to: '00:00', bytesPerSec: 102400 }, 5 * 60), true, 'from === to is a whole-day window');
+    assert.strictEqual(dm.scheduleWindowActive(null, 12 * 60), false, 'no schedule → never active');
+
+    // Arming a plan with a whole-day window caps EVERY transfer at the
+    // schedule's rate (its own lower limit still wins).
+    dm.clearActivePlan();
+    const day = { from: '00:00', to: '00:00', bytesPerSec: 102400 };
+    const armed = dm.setActivePlan('night', day);
+    assert.strictEqual(armed.name, 'night');
+    assert.deepStrictEqual(armed.schedule, { from: '00:00', to: '00:00', bytesPerSec: 102400 });
+    const info = dm.appliedPlanInfo();
+    assert.strictEqual(info.name, 'night');
+    assert.strictEqual(info.windowActive, true, 'whole-day window is active now');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 0 }), 102400, 'no own limit → window cap applies');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 51200 }), 51200, 'own lower limit still wins');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 102400, 'own higher limit is capped by the window');
+
+    // A queued transfer under the armed window reports the window as the
+    // basis (rate = cap, not the file's own limit); disarming restores it.
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `sched-${n}.txt`);
+    dm.startDownload('demo:content', mk('a'), null, { maxBytesPerSec: 51200 });
+    dm.startDownload('demo:content', mk('b'), null, { maxBytesPerSec: 51200 });
+    const c = dm.startDownload('demo:content', mk('c'), null, { maxBytesPerSec: 262144 });
+    assert.strictEqual(c.status, 'queued', 'c queues behind the active pair');
+    const dUnder = dm.etaDetail(c);
+    assert.strictEqual(dUnder.rateBps, 102400, 'queued ETA rate = the window cap, not the file limit');
+    assert.strictEqual(dUnder.basis, 'window', 'chip says the plan window binds');
+    dm.clearActivePlan();
+    assert.strictEqual(dm.appliedPlanInfo().name, '', 'clearActivePlan drops the badge');
+    assert.strictEqual(dm.appliedPlanInfo().windowActive, false, '…and disarms the cap');
+    const dFree = dm.etaDetail(c);
+    assert.strictEqual(dFree.rateBps, 262144, 'ETA rate back to the file limit once the plan clears');
+    assert.strictEqual(dFree.basis, 'limit');
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);

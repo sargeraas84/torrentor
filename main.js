@@ -263,7 +263,7 @@ function broadcast(channel, payload) {
 
 /** Broadcast the current download list to every window. */
 function broadcastDownloads(kind, id) {
-  broadcast('downloads:changed', { snapshot: downloads.snapshot(), kind: kind || 'changed', id: id || null });
+  broadcast('downloads:changed', { snapshot: downloads.snapshot(), appliedPlan: downloads.appliedPlanInfo(), kind: kind || 'changed', id: id || null });
   // Persist whatever is still in flight so an interrupted download
   // auto-resumes on next launch (finished/cancelled entries drop out of
   // the resumable set on their final transition) — and keep the lifetime
@@ -479,6 +479,8 @@ function registerIpc() {
 
   handle('downloads:list', () => downloads.snapshot());
 
+  handle('downloads:appliedPlan', () => downloads.appliedPlanInfo());
+
   // Lifetime per-source download tallies (count + bytes + timestamped
   // events per engine id) for the Library views. Live from the manager,
   // which main seeded from storage at boot and persists on every download
@@ -502,11 +504,29 @@ function registerIpc() {
   // Named queue plans: a saved what-if patch, persisted keyed by
   // destination path (ids are transient across restarts) so a plan can be
   // recalled and re-applied whenever the same files are queued again.
-  handle('queuePlans:save', ({ name, patch, folderPatch }) => {
+  // A saved plan is { entries, schedule } — entries are the per-file /
+  // per-folder limits, schedule (optional) is an active-window rule like
+  // { from: '23:00', to: '07:00', bytesPerSec: 102400 } that throttles the
+  // WHOLE queue while the local clock is inside the window. Plans saved
+  // before schedules existed (plain entry arrays) are tolerated everywhere.
+  const planRecord = (rec) => {
+    if (!rec) return null;
+    if (Array.isArray(rec)) return { entries: rec, schedule: null };
+    return { entries: rec.entries || [], schedule: rec.schedule || null };
+  };
+  const normalizeSchedule = (s) => {
+    if (!s) return null;
+    const from = String(s.from || '').trim();
+    const to = String(s.to || '').trim();
+    const bps = Math.max(0, Math.floor(Number(s.bytesPerSec) || 0));
+    return from && to && bps > 0 ? { from, to, bytesPerSec: bps } : null;
+  };
+
+  handle('queuePlans:save', ({ name, patch, folderPatch, schedule }) => {
     const key = String(name || '').trim();
     if (!key) throw new Error('Give the plan a name first.');
     const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
-    plans[key] = downloads.planEntries(patch || {}, folderPatch || {});
+    plans[key] = { entries: downloads.planEntries(patch || {}, folderPatch || {}), schedule: normalizeSchedule(schedule) };
     storage.replacePrefs('queuePlans', plans);
     return plans;
   });
@@ -516,10 +536,16 @@ function registerIpc() {
   handle('queuePlans:apply', ({ name }) => {
     const key = String(name || '').trim();
     const plans = storage.getPrefs().queuePlans || {};
-    const entries = plans[key];
-    if (!entries || !entries.length) throw new Error('No such plan.');
-    const applied = downloads.applyPlanEntries(entries, (entry, kind) => broadcastDownloads(kind, entry.id));
-    return { applied, snapshot: downloads.snapshot() };
+    const rec = planRecord(plans[key]);
+    // A plan may be schedule-ONLY (0 entries — its whole purpose is the
+    // active-window cap), so only a missing record is an error here.
+    if (!rec) throw new Error('No such plan.');
+    // Arming the plan first surfaces its name (tray badge) and enforces
+    // any schedule window on the whole queue; then the per-file limits
+    // land for real (folder rules cover files queued later too).
+    downloads.setActivePlan(key, rec.schedule);
+    const applied = downloads.applyPlanEntries(rec.entries, (entry, kind) => broadcastDownloads(kind, entry.id));
+    return { applied, appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };
   });
 
   handle('queuePlans:delete', ({ name }) => {
@@ -527,7 +553,19 @@ function registerIpc() {
     const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
     delete plans[key];
     storage.replacePrefs('queuePlans', plans);
+    // Deleting the armed plan disarms it — its badge and window cap must
+    // not outlive the plan it came from.
+    if (downloads.activePlanNameOf() === key) {
+      downloads.clearActivePlan();
+      broadcastDownloads('plan', null);
+    }
     return plans;
+  });
+
+  handle('queuePlans:clearApplied', () => {
+    downloads.clearActivePlan();
+    broadcastDownloads('plan', null);
+    return { appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };
   });
 
   handle('downloads:clear', () => {
