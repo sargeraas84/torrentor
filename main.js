@@ -69,6 +69,20 @@ async function bootstrap() {
   storage = new Storage(dataDir());
   applyProxyPrefs();
 
+  // Auto-resume interrupted downloads: transfers that were in flight when
+  // the app last quit were persisted (url + approved destination). They
+  // re-enter the queue here — before the window loads — so the tray shows
+  // them from the first paint and the .part continues via HTTP Range.
+  try {
+    const pending = storage.getTransfers();
+    if (Array.isArray(pending) && pending.length) {
+      storage.setTransfers([]); // consumed; the live queue re-persists below
+      downloads.restorePending(pending, (entry, kind) => broadcastDownloads(kind, entry.id));
+    }
+  } catch (err) {
+    console.error('[torrentor] could not restore interrupted downloads:', err && err.message ? err.message : err);
+  }
+
   createSplash();
   createWindow();
   createTray();
@@ -236,6 +250,14 @@ function broadcast(channel, payload) {
 /** Broadcast the current download list to every window. */
 function broadcastDownloads(kind, id) {
   broadcast('downloads:changed', { snapshot: downloads.snapshot(), kind: kind || 'changed', id: id || null });
+  // Persist whatever is still in flight so an interrupted download
+  // auto-resumes on next launch (finished/cancelled entries drop out of
+  // the resumable set on their final transition).
+  try {
+    if (storage) storage.setTransfers(downloads.resumableSnapshot());
+  } catch {
+    /* persistence is best-effort */
+  }
 }
 
 // ------------------------------------------------------------ IPC helpers
@@ -502,6 +524,19 @@ function registerIpc() {
   // already-approved destination and the .part continues via Range.
   handle('download:retry', ({ id }) => {
     downloads.retryDownload(Number(id), (entry, kind) => broadcastDownloads(kind, entry.id));
+    return downloads.snapshot();
+  });
+
+  // Per-transfer speed limit (bytes/sec, 0 = unlimited). The rate is read
+  // live by the active stream, so the change applies immediately.
+  handle('download:limit', ({ id, bytesPerSec }) => {
+    downloads.setSpeedLimit(Number(id), Number(bytesPerSec), (entry, kind) => broadcastDownloads(kind, entry.id));
+    return downloads.snapshot();
+  });
+
+  // Manual queue reordering: 'up' starts the transfer sooner, 'down' later.
+  handle('download:move', ({ id, dir }) => {
+    downloads.moveQueued(Number(id), String(dir || ''), (entry, kind) => broadcastDownloads(kind, entry.id));
     return downloads.snapshot();
   });
 

@@ -829,6 +829,83 @@ async function main() {
     }
   });
 
+  ok('streamToFile honors a live per-chunk rate limit (token bucket)', async () => {
+    const http = require('http');
+    const payload = Buffer.alloc(384 * 1024);
+    for (let i = 0; i < payload.length; i++) payload[i] = (i * 7) % 251;
+    const server = http.createServer((_req, res) => {
+      res.setHeader('content-length', payload.length);
+      res.end(payload);
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    const dest = path.join(os.tmpdir(), `torrentor-dl-rate-${Date.now()}.bin`);
+    const seen = [];
+    try {
+      const t0 = Date.now();
+      const out = await dlNetwork.streamToFile({
+        url: `http://127.0.0.1:${port}/rate.bin`,
+        destPath: dest,
+        allowHosts: ['127.0.0.1'],
+        rateLimit: () => 256 * 1024, // live getter form (per-transfer limit)
+        onBytes: (received) => seen.push(received),
+      });
+      const elapsedMs = Date.now() - t0;
+      assert.strictEqual(out.bytes, payload.length);
+      assert.ok(elapsedMs >= 1200, `rate-limited to ~256KB/s but finished in ${elapsedMs}ms`);
+      assert.ok(elapsedMs < 12000, `rate-limited download too slow (${elapsedMs}ms)`);
+      assert.strictEqual(seen[seen.length - 1], payload.length, 'final progress byte count exact');
+      for (let i = 1; i < seen.length; i++) assert.ok(seen[i] >= seen[i - 1], 'progress monotonic');
+      assert.strictEqual(fs.readFileSync(dest).length, payload.length, 'file bytes match');
+    } finally {
+      server.close();
+      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+    }
+  });
+
+  ok('streamToFile resumes a partial via HTTP Range when the server supports it', async () => {
+    const http = require('http');
+    const payload = Buffer.alloc(200 * 1024);
+    for (let i = 0; i < payload.length; i++) payload[i] = i % 251;
+    const ranged = [];
+    const server = http.createServer((req, res) => {
+      const m = /^bytes=(\d+)-/.exec(req.headers.range || '');
+      if (!m) {
+        res.setHeader('content-length', payload.length);
+        return res.end(payload);
+      }
+      ranged.push(Number(m[1]));
+      const from = Number(m[1]);
+      res.statusCode = 206;
+      res.setHeader('content-range', `bytes ${from}-${payload.length - 1}/${payload.length}`);
+      res.setHeader('content-length', payload.length - from);
+      res.end(payload.subarray(from));
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    const dest = path.join(os.tmpdir(), `torrentor-dl-resume-${Date.now()}.bin`);
+    try {
+      // Simulate an interrupted download: a partial file already on disk.
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest + '.part', payload.subarray(0, 60 * 1024));
+      const out = await dlNetwork.streamToFile({
+        url: `http://127.0.0.1:${port}/resume.bin`,
+        destPath: dest,
+        allowHosts: ['127.0.0.1'],
+        resumeFrom: 60 * 1024,
+      });
+      assert.strictEqual(out.status, 206, 'server honored the Range request');
+      assert.strictEqual(out.resumedFrom, 60 * 1024);
+      assert.strictEqual(out.bytes, 140 * 1024, 'only the missing tail streamed');
+      assert.strictEqual(fs.readFileSync(dest).equals(payload), true, 'resumed file byte-identical');
+      assert.ok(ranged.includes(60 * 1024), 'Range header actually sent');
+    } finally {
+      server.close();
+      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+      if (fs.existsSync(dest + '.part')) fs.unlinkSync(dest + '.part');
+    }
+  });
+
   ok('streamToFile refuses non-allowlisted hosts and aborts cleanly', async () => {
     const http = require('http');
     let hit = 0;
@@ -931,6 +1008,102 @@ async function main() {
     // point is the scheduler accepted it back with its .part preserved.
     await waitFor(() => dm.getDownload(t0.id) && dm.getDownload(t0.id).status === 'error');
     dm.clearFinished();
+  });
+
+  ok('scheduler: manual queue reorder changes start order (moveQueued)', async () => {
+    dm.clearFinished();
+    const mk = (n) => path.join(dmDir, `move-${n}.txt`);
+    const a = dm.startDownload('demo:content', mk('a'));
+    const b = dm.startDownload('demo:content', mk('b'));
+    const c = dm.startDownload('demo:readme', mk('c'));
+    const d = dm.startDownload('demo:content', mk('d'));
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    assert.strictEqual(c.status, 'queued');
+    assert.strictEqual(d.status, 'queued');
+    // Snapshot reports queued transfers in queue order with queuePos set.
+    let snap = dm.snapshot().filter((t) => t.filePath.startsWith(dmDir));
+    assert.strictEqual(snap.find((t) => t.id === c.id).queuePos, 0);
+    assert.strictEqual(snap.find((t) => t.id === d.id).queuePos, 1);
+    assert.strictEqual(snap.find((t) => t.id === a.id).queuePos, -1, 'active transfer not queued');
+    // Promote d above c.
+    assert.strictEqual(dm.moveQueued(d.id, 'up').id, d.id);
+    snap = dm.snapshot().filter((t) => t.filePath.startsWith(dmDir));
+    assert.deepStrictEqual(snap.filter((t) => t.status === 'queued').map((t) => t.id), [d.id, c.id], 'd moved ahead of c');
+    // Edge no-ops: d already at the head, c at the tail, active a not queued.
+    assert.strictEqual(dm.moveQueued(d.id, 'up'), null, 'cannot move above the queue head');
+    assert.strictEqual(dm.moveQueued(c.id, 'down'), null, 'cannot move below the queue tail');
+    assert.strictEqual(dm.moveQueued(a.id, 'up'), null, 'active download not reorderable');
+    // Cancel c (second in line): d must be next to start once a slot frees.
+    dm.cancelDownload(c.id);
+    await waitFor(() => dm.getDownload(d.id) && dm.getDownload(d.id).status === 'done', 5000);
+    assert.ok(!fs.existsSync(mk('c')), 'cancelled queued file never written');
+    assert.ok(fs.existsSync(mk('d')), 'promoted transfer completed');
+    dm.clearFinished();
+  });
+
+  ok('scheduler: per-download speed limit applies live and survives retry', async () => {
+    dm.clearFinished();
+    const t = dm.startDownload('demo:content', path.join(dmDir, 'limit-demo.txt'));
+    dm.setSpeedLimit(t.id, 256 * 1024);
+    assert.strictEqual(dm.getDownload(t.id).maxBytesPerSec, 256 * 1024, 'limit stored on the entry');
+    await waitFor(() => dm.getDownload(t.id) && dm.getDownload(t.id).status === 'done', 5000);
+    assert.strictEqual(dm.snapshot().find((x) => x.id === t.id).maxBytesPerSec, 256 * 1024, 'limit exposed in the snapshot');
+    dm.clearFinished();
+    // Retry carries the chosen limit into the resumed attempt.
+    const bad = dm.startDownload('http://127.0.0.1:9/never.bin', path.join(dmDir, 'limit-bad.bin'));
+    await waitFor(() => dm.getDownload(bad.id) && dm.getDownload(bad.id).status === 'error');
+    dm.setSpeedLimit(bad.id, 100 * 1024);
+    const retried = dm.retryDownload(bad.id);
+    assert.strictEqual(retried.maxBytesPerSec, 100 * 1024, 'limit carried into the retry');
+    await waitFor(() => dm.getDownload(bad.id) && dm.getDownload(bad.id).status === 'error', 5000);
+    dm.clearFinished();
+  });
+
+  ok('scheduler: resumableSnapshot persists only in-flight; restorePending resumes them', async () => {
+    dm.clearFinished();
+    const destA = path.join(dmDir, 'resume-a.txt');
+    const destB = path.join(dmDir, 'resume-b.txt');
+    dm.startDownload('demo:content', destA);
+    dm.startDownload('demo:content', destB);
+    // Both fill the two active slots synchronously — capture them mid-flight.
+    const recs = dm.resumableSnapshot().filter((r) => r.filePath === destA || r.filePath === destB);
+    assert.strictEqual(recs.length, 2, 'active transfers are persisted');
+    assert.ok(recs.every((r) => r.demo && r.url.startsWith('demo:') && r.filePath), 'records carry url + approved destination');
+    const findById = (needle) => [...dm.snapshot()].find((x) => x.filePath === needle);
+    await waitFor(() => {
+      const xa = findById(destA);
+      const xb = findById(destB);
+      return xa && xb && xa.status === 'done' && xb.status === 'done';
+    });
+    assert.strictEqual(dm.resumableSnapshot().length, 0, 'finished transfers drop out of the resumable set');
+    // Simulate an interrupted session: re-enqueue the saved records — they
+    // restart under fresh ids, no dialog, and re-write their destinations.
+    dm.clearFinished();
+    const events = [];
+    const n = dm.restorePending(recs, (entry, kind) => events.push(`${entry.id}:${kind}`));
+    assert.strictEqual(n, 2, 'restore accepted both records');
+    await waitFor(() => {
+      const xa = findById(destA);
+      const xb = findById(destB);
+      return xa && xb && xa.status === 'done' && xb.status === 'done';
+    }, 5000);
+    assert.ok(fs.existsSync(destA) && fs.existsSync(destB), 'restored transfers wrote their files');
+    assert.ok(events.some((e) => e.endsWith(':queued')), 'restore reported queued transitions');
+    dm.clearFinished();
+  });
+
+  ok('storage: persisted transfers round-trip (auto-resume records)', async () => {
+    const stDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-transfers-'));
+    const s1 = new Storage(stDir);
+    assert.deepStrictEqual(s1.getTransfers(), []);
+    const recs = [{ url: 'demo:content', filePath: '/tmp/x.bin', demo: true, maxBytesPerSec: 512 * 1024 }];
+    s1.setTransfers(recs);
+    s1.flush();
+    const s2 = new Storage(stDir);
+    assert.deepStrictEqual(s2.getTransfers(), recs, 'records survive a storage reload');
+    await new Promise((r) => setTimeout(r, 320)); // let debounced writes settle
+    fs.rmSync(stDir, { recursive: true, force: true });
   });
 
   // --------------------------- network helpers -------------------------

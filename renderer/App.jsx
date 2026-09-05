@@ -107,6 +107,22 @@ function App() {
       showToast(`Can't reveal — ${(err && err.message) || 'unknown error'}`);
     }
   };
+  const setDlLimit = async (id, bytesPerSec) => {
+    try {
+      const list = await api.setDownloadLimit(id, bytesPerSec);
+      setDownloads(list || []);
+    } catch {
+      /* tray updates via the broadcast anyway */
+    }
+  };
+  const moveDl = async (id, dir) => {
+    try {
+      const list = await api.moveDownload(id, dir);
+      setDownloads(list || []);
+    } catch {
+      /* non-fatal */
+    }
+  };
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -591,7 +607,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} />
 
       {settingsOpen && (
         <SettingsModal

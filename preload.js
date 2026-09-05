@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld('torrentor', {
   downloadFile: bridge('download:start', (url) => ({ url })),
   retryDownload: bridge('download:retry', (id) => ({ id })),
   cancelDownload: bridge('download:cancel', (id) => ({ id })),
+  setDownloadLimit: bridge('download:limit', (id, bytesPerSec) => ({ id, bytesPerSec })),
+  moveDownload: bridge('download:move', (id, dir) => ({ id, dir })),
   revealDownload: bridge('downloads:reveal', (id) => ({ id })),
 
   // ----- window controls

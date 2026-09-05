@@ -101,8 +101,10 @@ already run enforceable for search traffic:
 
 Notes, honestly stated:
 
-- The proxy applies to Torrentor's own search traffic. Actual file downloads happen in
-  your torrent client, whose network settings govern them.
+- The proxy route governs Torrentor's own traffic — engine queries **and direct file
+  downloads** (Internet Archive files / official ISOs stream through the same route).
+  Torrent/magnet hand-offs still download in your torrent client, whose own network
+  settings govern them.
 - The app can't detect your VPN by itself — the exit-IP check is the source of truth.
 
 ## Quick start
@@ -112,10 +114,11 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 62 pure-Node checks (no window, no network)
+npm test           # 68 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:ui    # drives the real window (real engines): search, favorites,
-                    #   VPN check, paging, thumbnails, direct downloads — needs network
+                    #   VPN check, paging, thumbnails, demo + real Archive direct
+                    #   downloads — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 

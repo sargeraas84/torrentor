@@ -354,6 +354,56 @@ async function main() {
   await waitFor('tray clears after Clear finished', `!document.querySelector('[data-testid="download-tray"]')`, 8000);
   ok('Clear finished empties the download tray');
 
+  // ===== 10. Real Internet Archive item: file picker → genuine download =====
+  // The demo step exercised the flow offline; this one proves the REAL
+  // path end-to-end — a live Archive item's metadata drives the picker and
+  // an actual file streams from archive.org to disk (SMOKE_MODE routes it
+  // to a temp path, no save dialog). Rows are listed biggest-first, so the
+  // LAST row is the smallest real file: keeps the genuine transfer quick.
+  await setText('[data-testid="search-input"]', 'big buck bunny');
+  await wait(80);
+  await click('[data-testid="search-go"]');
+  await waitFor('archive query completes', `(() => { const s = document.querySelector('[data-testid="run-summary"]'); return s && /\\d+ unique results? from/.test(s.textContent); })()`, 25000);
+  const archiveBtnVisible = await js(`(() => {
+      const cards = [...document.querySelectorAll('[data-testid="result-card"]')];
+      const arch = cards.find((c) => c.innerText.includes('Internet Archive') && c.querySelector('[data-testid="direct-download"]'));
+      const b = arch && arch.querySelector('[data-testid="direct-download"]');
+      if (!b) return false;
+      b.scrollIntoView({ block: 'center' });
+      return true;
+    })()`);
+  if (!archiveBtnVisible) throw new Error('No Archive card with a Download-files button for a real query');
+  await js(`(() => {
+      const cards = [...document.querySelectorAll('[data-testid="result-card"]')];
+      const arch = cards.find((c) => c.innerText.includes('Internet Archive') && c.querySelector('[data-testid="direct-download"]'));
+      arch.querySelector('[data-testid="direct-download"]').click();
+      return true;
+    })()`);
+  await waitFor('archive picker lists the item files', `document.querySelectorAll('[data-testid="files-modal"] [data-testid="file-download"]').length > 0`, 30000);
+  const fileCount = await js(`document.querySelectorAll('[data-testid="files-modal"] [data-testid="file-download"]').length`);
+  const smallestFile = await js(`(() => {
+      const btns = [...document.querySelectorAll('[data-testid="files-modal"] [data-testid="file-download"]')];
+      const b = btns[btns.length - 1];
+      const row = b.closest('div');
+      const nameEl = row && row.querySelector('[title]');
+      const name = nameEl ? nameEl.getAttribute('title') : null;
+      b.click();
+      return name;
+    })()`);
+  const fileLabel = String(smallestFile || 'item file');
+  await waitFor('tray shows the finished genuine download', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return t && t.innerText.includes('Done'); })()`, 90000);
+  const realTray = await textOf('[data-testid="download-tray"]');
+  if (!realTray || !realTray.includes(fileLabel)) defect('real Archive file downloaded is the picked file', `tray=${String(realTray || '').replace(/\s+/g, ' ').slice(0, 80)} name=${fileLabel.slice(0, 60)}`);
+  else ok(`real Archive item: ${fileCount} files listed, '${fileLabel.slice(0, 60)}' streamed to disk`, realTray.replace(/\s+/g, ' ').slice(0, 60));
+  const realReveal = await js(`!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-reveal"]')`);
+  if (!realReveal) defect('genuine finished transfer offers reveal-in-folder', 'dl-reveal missing');
+  else ok('genuine finished transfer offers reveal-in-folder');
+  await click('[data-testid="files-modal"] button[aria-label="Close"]');
+  await waitFor('archive picker closed', `!document.querySelector('[data-testid="files-modal"]')`, 8000);
+  await js(`(() => { const b = [...document.querySelectorAll('[data-testid="download-tray"] button')].find((x) => x.textContent.includes('Clear finished')); if (!b) return false; b.click(); return true; })()`);
+  await waitFor('tray cleared after the archive download', `!document.querySelector('[data-testid="download-tray"]')`, 8000);
+  ok('Clear finished empties the tray after the genuine download');
+
   if (consoleErrors.length) {
     console.log('  ! renderer console errors observed:', consoleErrors.slice(0, 5));
     defects.push(`renderer console errors: ${consoleErrors[0]}`);

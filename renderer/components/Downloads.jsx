@@ -149,9 +149,10 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove }) {
   const running = downloads.filter((d) => d.status === 'downloading' || d.status === 'queued');
   const finished = downloads.filter((d) => d.status !== 'downloading' && d.status !== 'queued');
+  const queuedCount = running.filter((d) => d.status === 'queued').length;
   if (!downloads.length) return null;
 
   return (
@@ -189,6 +190,45 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal }) {
                     : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
                 </div>
               </div>
+              {queued && (
+                <>
+                  <button
+                    type="button"
+                    data-testid="dl-move-up"
+                    aria-label="Move up in queue (starts sooner)"
+                    className="tooltip"
+                    data-tip="Move up in the queue"
+                    disabled={d.queuePos === 0}
+                    style={{ ...moveBtn, ...(d.queuePos === 0 ? { color: '#2a3850', cursor: 'default' } : {}) }}
+                    onClick={() => onMove && onMove(d.id, 'up')}
+                  >
+                    <I.arrowUp size={11} />
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="dl-move-down"
+                    aria-label="Move down in queue (starts later)"
+                    className="tooltip"
+                    data-tip="Move down in the queue"
+                    disabled={d.queuePos === queuedCount - 1}
+                    style={{ ...moveBtn, ...(d.queuePos === queuedCount - 1 ? { color: '#2a3850', cursor: 'default' } : {}) }}
+                    onClick={() => onMove && onMove(d.id, 'down')}
+                  >
+                    <I.arrowDown size={11} />
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                data-testid="dl-limit"
+                className="tooltip"
+                data-limit={d.maxBytesPerSec || 0}
+                data-tip={d.maxBytesPerSec ? `Speed limit ${fmt.formatBytes(d.maxBytesPerSec)}/s — click to change` : 'Unlimited speed — click to set a limit'}
+                style={limitBtn}
+                onClick={() => onLimit && onLimit(d.id, nextPreset(d.maxBytesPerSec))}
+              >
+                {limitLabel(d.maxBytesPerSec)}
+              </button>
               <button
                 type="button"
                 aria-label={queued ? 'Cancel queued download' : 'Cancel download'}
@@ -348,6 +388,47 @@ const miniBtn = {
   cursor: 'pointer',
   flexShrink: 0,
 };
+const moveBtn = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 18,
+  height: 22,
+  borderRadius: 6,
+  background: 'transparent',
+  border: 'none',
+  color: '#5f7189',
+  cursor: 'pointer',
+  flexShrink: 0,
+};
+const limitBtn = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 18,
+  padding: '0 4px',
+  borderRadius: 5,
+  background: 'transparent',
+  border: '1px solid #22314b',
+  color: '#8494ab',
+  fontSize: 9.5,
+  fontWeight: 600,
+  lineHeight: 1,
+  cursor: 'pointer',
+  flexShrink: 0,
+};
+// Speed-limit presets (bytes/sec); clicking the tray's limit control cycles.
+const LIMIT_PRESETS = [0, 100 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024];
+function nextPreset(current) {
+  const v = Number(current) || 0;
+  let i = LIMIT_PRESETS.indexOf(v);
+  if (i < 0) i = 0; // out-of-band value → wrap from unlimited
+  return LIMIT_PRESETS[(i + 1) % LIMIT_PRESETS.length];
+}
+function limitLabel(bps) {
+  const v = Number(bps) || 0;
+  return v > 0 ? `${fmt.formatBytes(v).replace(/\s+/g, '')}/s` : '\u221e';
+}
 const clearBtn = {
   background: 'transparent',
   border: '1px solid #22314b',
