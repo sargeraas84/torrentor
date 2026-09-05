@@ -494,6 +494,11 @@ function registerIpc() {
     return downloads.snapshot();
   });
 
+  // What-if queue preview: how the waiting queue WOULD rank if the given
+  // per-transfer speed limits were real. Purely hypothetical — nothing is
+  // applied until the tray's Apply calls download:limit per id.
+  handle('downloads:previewQueue', ({ limits }) => downloads.previewQueueOrder(limits || {}));
+
   handle('downloads:clear', () => {
     downloads.clearFinished();
     return downloads.snapshot();

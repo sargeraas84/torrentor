@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('torrentor', {
   getDownloads: bridge('downloads:list'),
   getDownloadStats: bridge('downloads:stats'),
   setSmartOrder: bridge('downloads:smartOrder', (on) => ({ on })),
+  previewQueue: bridge('downloads:previewQueue', (limits) => ({ limits })),
   clearDownloads: bridge('downloads:clear'),
   onDownloadsChanged: (cb) => subscribe('downloads:changed', cb),
   itemFiles: bridge('download:itemFiles', (sourceId, itemId) => ({ sourceId, itemId })),

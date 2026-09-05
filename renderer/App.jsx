@@ -125,6 +125,22 @@ function App() {
       /* tray updates via the broadcast anyway */
     }
   };
+  // What-if queue preview: hypothetical limits → the order the queue WOULD
+  // rank under smart order (nothing applied until the popover's Apply).
+  const previewQueue = async (limits) => {
+    try {
+      return (await api.previewQueue(limits || {})) || null;
+    } catch {
+      return null;
+    }
+  };
+  // Apply a what-if patch: set each listed transfer's limit for real (the
+  // manager re-sorts the smart-ordered queue on each change).
+  const applyLimits = async (limits) => {
+    for (const [id, bytesPerSec] of Object.entries(limits || {})) {
+      await setDlLimit(Number(id), Number(bytesPerSec));
+    }
+  };
   const moveDl = async (id, dir) => {
     try {
       const list = await api.moveDownload(id, dir);
@@ -665,7 +681,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} />
 
       {settingsOpen && (
         <SettingsModal

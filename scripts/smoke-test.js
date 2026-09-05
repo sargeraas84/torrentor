@@ -1236,12 +1236,63 @@ async function main() {
     assert.strictEqual(dChip.etaSeconds, null, 'no ETA while the size is unknown');
     assert.strictEqual(dChip.etaRemaining, null, 'unknown-size files expose no byte math');
     assert.strictEqual(dChip.etaTotal, null, 'unknown-size files expose no byte math');
-    assert.ok(!('etaBasis' in chipOf(a.id)), 'active chips carry no eta fields');
+    // Active chips carry the SAME live reasoning under smart order: the
+    // paced 50 KB/s transfer shows its limit basis and a shrinking ETA.
+    const aChip = chipOf(a.id);
+    assert.strictEqual(aChip.etaBasis, 'limit', 'a paced active chip shows its limit basis');
+    assert.ok(aChip.etaSeconds > 0 && aChip.etaSeconds <= 16, `active ETA is live and bounded (${aChip.etaSeconds}s for 768 KB @ 50 KB/s)`);
+    assert.strictEqual(aChip.etaRateBps, 51200, 'active rate = its enforced limit');
     dm.setSmartOrder(false);
     assert.ok(!('etaBasis' in chipOf(c.id)), 'eta fields disappear when smart order is off');
+    assert.ok(!('etaBasis' in chipOf(a.id)), 'active eta fields disappear when smart order is off');
     for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
     await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
     dm.clearFinished();
+  });
+
+  ok('scheduler: what-if preview re-ranks without mutating the queue', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `wf-${n}.txt`);
+    // Both active slots paced, two queued 768 KB demo files at the same
+    // 100 KB/s limit → equal ETAs → arrival order (distinct smoke dirs).
+    dm.startDownload('demo:content', mk('a'), null, { maxBytesPerSec: 51200 });
+    dm.startDownload('demo:content', mk('b'), null, { maxBytesPerSec: 51200 });
+    const p1 = dm.startDownload('demo:content', mk('p1'), null, { maxBytesPerSec: 102400 });
+    const p2 = dm.startDownload('demo:content', mk('p2'), null, { maxBytesPerSec: 102400 });
+    assert.strictEqual(p1.status, 'queued');
+    assert.strictEqual(p2.status, 'queued');
+    const q = () => dm.snapshot().filter((t) => t.status === 'queued').map((t) => t.id);
+    const payload = dm.demoPayload('demo:content').length;
+    // Baseline preview mirrors the live queue, with full chip-level detail.
+    const base = dm.previewQueueOrder({});
+    assert.deepStrictEqual(base.map((r) => r.id), [p1.id, p2.id], 'baseline preview = live queue order (equal ETAs, arrival order)');
+    assert.strictEqual(base[0].etaBasis, 'limit', 'preview rows carry the same basis words as chips');
+    assert.strictEqual(base[0].etaRateBps, 102400, 'preview rate = current limit');
+    assert.ok(Math.abs(base[0].etaSeconds - payload / 102400) < 1e-9, 'preview ETA = remaining ÷ limit');
+    assert.strictEqual(base[0].limit, 102400, 'the real limit is reported alongside the preview');
+    // Patch p2's limit to 1 MB/s → its ETA drops to ~0.75 s → jumps first.
+    const preview = dm.previewQueueOrder({ [p2.id]: 1024 * 1024 });
+    assert.deepStrictEqual(preview.map((r) => r.id), [p2.id, p1.id], 'patched file re-ranks first');
+    assert.ok(Math.abs(preview[0].etaSeconds - payload / (1024 * 1024)) < 1e-9, 'preview ETA uses the hypothetical limit');
+    assert.strictEqual(preview[0].limit, 102400, 'the reported limit stays the CURRENT real one');
+    // Patching to unlimited falls back to the nominal baseline (nothing has
+    // measured a shared rate yet — every stream here is app-limited).
+    const unlimited = dm.previewQueueOrder({ [p1.id]: 0 });
+    assert.strictEqual(unlimited[0].etaBasis, 'baseline', 'unlimited patch → baseline rate until a real speed is measured');
+    assert.strictEqual(unlimited[0].etaRateBps, 102400, 'baseline rate is the nominal 100 KB/s');
+    // The preview mutates NOTHING — live order and limits are untouched.
+    assert.deepStrictEqual(q(), [p1.id, p2.id], 'real queue order untouched by previews');
+    assert.strictEqual(dm.getDownload(p2.id).maxBytesPerSec, 102400, 'real limit untouched by preview');
+    assert.strictEqual(dm.getDownload(p1.id).maxBytesPerSec, 102400, 'real limit untouched by preview (patched id too)');
+    // With smart order off the order is plain FIFO — no preview.
+    dm.setSmartOrder(false);
+    assert.strictEqual(dm.previewQueueOrder({}), null, 'preview unavailable when smart order is off');
+    dm.setSmartOrder(true);
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
   });
 
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {

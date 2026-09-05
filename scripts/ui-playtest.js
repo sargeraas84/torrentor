@@ -439,6 +439,15 @@ async function main() {
     6000
   );
   ok('smart order explains each queued chip (ETA + speed basis)', `ETA ~${etaInfo.eta}s · basis ${etaInfo.basis}`);
+  // The same reasoning extends to ACTIVE downloads: each running chip shows
+  // its live ETA and the speed basis pacing it (these actives inherited the
+  // 100 KB/s default limit, so the basis is 'limit').
+  const activeEta = await waitFor(
+    'active chips show live ETA under smart order',
+    `(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="downloading"] [data-testid="dl-eta-active"]'); if (!el) return null; const basis = el.getAttribute('data-basis'); const eta = Number(el.getAttribute('data-eta-sec')); return eta >= 1 && eta <= 60 && ['limit', 'measured', 'shared', 'baseline'].includes(basis) ? { basis, eta } : null; })()`,
+    6000
+  );
+  ok('active chip shows its live ETA + speed basis', `~${activeEta.eta}s left · basis ${activeEta.basis}`);
   // The same chip also shows the raw byte math behind the estimate: how much
   // remains of the total size (these demo files are 768 KB each).
   const bytesInfo = await waitFor(
@@ -459,6 +468,29 @@ async function main() {
     throw new Error(`smart-order popover check failed: ${JSON.stringify(popInfo)}`);
   }
   ok('smart-order popover explains the queue (per-file ETA + bars)', `${popInfo.rows} rows with ETA bars`);
+  // What-if mode: hypothetical speed limits re-rank the preview without
+  // touching the queue. Both queued files sit at 100 KB/s with equal ETAs,
+  // so raising the SECOND row's limit (100 → 256 KB/s) jumps it first.
+  const popIds = await js(`[...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-smart-row"]')].map((r) => Number(r.getAttribute('data-id')))`);
+  if (popIds.length !== 2) throw new Error(`Expected 2 popover rows for what-if, got ${popIds.length}`);
+  await click('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]');
+  await waitFor('what-if steppers appear on every preview row', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 2`, 6000);
+  await click(`[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[1]}"]`);
+  await waitFor('stepper shows the hypothetical 256 KB/s', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"][data-id="${popIds[1]}"]').getAttribute('data-limit') === '262144'`, 6000);
+  await waitFor('preview re-ranks the patched file first', `(() => { const rows = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-smart-row"]')]; return rows.length === 2 && Number(rows[0].getAttribute('data-id')) === ${popIds[1]} ? rows[0].getAttribute('data-id') : null; })()`, 6000);
+  ok('what-if preview re-ranks the queue (100 → 256 KB/s jumps the row)');
+  await click('[data-testid="download-tray"] [data-testid="dl-whatif-apply"]');
+  await waitFor(
+    'Apply commits the limit and re-sorts the live queue',
+    `(() => {
+      const chip = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${popIds[1]}"] [data-testid="dl-limit"]');
+      if (!chip || chip.getAttribute('data-limit') !== '262144') return null;
+      const ids = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]')].map((c) => Number(c.getAttribute('data-id')));
+      return ids[0] === ${popIds[1]} ? ids.join(',') : null;
+    })()`,
+    6000
+  );
+  ok('what-if Apply commits the limit and the queue re-sorts', `queued starts with ${popIds[1]} @ 256 KB/s`);
   await click('[data-testid="download-tray"] [data-testid="dl-smart-pop-close"]');
   await waitFor('popover closes on demand', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
   ok('smart-order popover closes on demand');

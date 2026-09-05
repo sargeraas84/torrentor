@@ -170,7 +170,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -180,9 +180,49 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const [dragId, setDragId] = useState(null); // queued id being dragged
   const [dropId, setDropId] = useState(null); // queued id currently hovered as drop target
   const [showQueueInfo, setShowQueueInfo] = useState(false); // smart-order popover
-  // Longest estimated wait among queued files — the popover's ETA bars are
-  // relative to it, so the slowest file always fills its bar.
-  const maxEta = queuedItems.reduce((m, d) => (d.etaSeconds != null && d.etaSeconds > m ? d.etaSeconds : m), 0);
+  const [whatIf, setWhatIf] = useState(false); // popover what-if mode
+  const [previewPatch, setPreviewPatch] = useState({}); // hypothetical limits {id: bps}
+  const [previewOrder, setPreviewOrder] = useState(null); // previewQueueOrder result
+  // Rows shown in the popover: the live queue, or (in what-if mode) the
+  // hypothetical re-rank. Bars scale to the longest estimated wait.
+  const displayRows = whatIf ? previewOrder || queuedItems : queuedItems;
+  const popMaxEta = displayRows.reduce((m, d) => (d.etaSeconds != null && d.etaSeconds > m ? d.etaSeconds : m), 0);
+  // What-if preview plumbing: hypothetical limits go to the manager (which
+  // ranks exactly as Apply would) and come back as an ordered row list.
+  const fetchPreview = async (patch) => {
+    if (!onPreviewQueue) return null;
+    try {
+      return (await onPreviewQueue(patch)) || null;
+    } catch {
+      return null;
+    }
+  };
+  const toggleWhatIf = async () => {
+    if (whatIf) {
+      setWhatIf(false);
+      setPreviewPatch({});
+      setPreviewOrder(null);
+    } else {
+      setWhatIf(true);
+      setPreviewOrder(await fetchPreview({}));
+    }
+  };
+  const stepLimit = async (id, current) => {
+    const next = nextPreset(current);
+    const patch = { ...previewPatch, [id]: next };
+    setPreviewPatch(patch);
+    setPreviewOrder(await fetchPreview(patch));
+  };
+  const applyPreview = async () => {
+    if (onApplyLimits) await onApplyLimits(previewPatch);
+    setWhatIf(false);
+    setPreviewPatch({});
+    setPreviewOrder(null);
+  };
+  const resetPreview = async () => {
+    setPreviewPatch({});
+    setPreviewOrder(await fetchPreview({}));
+  };
   if (!downloads.length) return null;
 
   return (
@@ -277,22 +317,47 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <I.gauge size={12} style={{ color: '#7ce7f7', flexShrink: 0 }} />
             <span style={{ color: '#cfe3f7', fontSize: 11.5, fontWeight: 650, flex: 1 }}>Start order — fastest-finishing first</span>
+            <button
+              type="button"
+              data-testid="dl-whatif-toggle"
+              className="tooltip"
+              data-tip={whatIf ? 'Back to the live queue order' : 'What if… — preview speed limits before applying them'}
+              style={{ ...whatIfBtn, background: whatIf ? 'rgba(34,211,238,0.15)' : 'rgba(34,211,238,0.08)' }}
+              onClick={toggleWhatIf}
+            >
+              {whatIf ? 'Live order' : 'What if…'}
+            </button>
             <button type="button" aria-label="Close" data-testid="dl-smart-pop-close" style={closeBtn} onClick={() => setShowQueueInfo(false)}>
               <I.close size={13} />
             </button>
           </div>
-          {queuedItems.map((d) => {
+          {displayRows.map((d) => {
             const eta = d.etaSeconds;
             const known = eta != null && d.etaTotal != null;
+            const hypLimit = previewPatch[d.id] !== undefined ? previewPatch[d.id] : d.limit !== undefined ? d.limit : d.maxBytesPerSec;
             return (
               <div key={d.id} data-testid="dl-smart-row" data-id={d.id} style={{ padding: '6px 0', borderBottom: '1px solid #16253d' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span title={d.name} style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {d.name}
                   </span>
                   <span data-testid="dl-smart-row-eta" style={{ color: '#7ce7f7', fontSize: 10.5, fontWeight: 650, whiteSpace: 'nowrap' }}>
                     {known ? `~${fmtEta(eta)}` : 'size unknown'}
                   </span>
+                  {whatIf && (
+                    <button
+                      type="button"
+                      data-testid="dl-whatif-step"
+                      data-id={d.id}
+                      data-limit={hypLimit}
+                      className="tooltip"
+                      data-tip="Cycle this file's hypothetical speed limit"
+                      style={limitBtn}
+                      onClick={() => stepLimit(d.id, hypLimit)}
+                    >
+                      {limitLabel(hypLimit)}
+                    </button>
+                  )}
                 </div>
                 <div style={{ color: '#5b6b84', fontSize: 10, marginTop: 2 }}>
                   {known
@@ -304,7 +369,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                     data-testid="dl-smart-bar"
                     style={{
                       height: '100%',
-                      width: known && maxEta > 0 ? `${Math.max(4, Math.round((eta / maxEta) * 100))}%` : '100%',
+                      width: known && popMaxEta > 0 ? `${Math.max(4, Math.round((eta / popMaxEta) * 100))}%` : '100%',
                       background: known ? '#22d3ee' : 'rgba(34,211,238,0.25)',
                       ...(known ? {} : { animation: 'indeterminate 1.4s ease-in-out infinite' }),
                     }}
@@ -313,9 +378,25 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               </div>
             );
           })}
-          <div style={{ color: '#5b6b84', fontSize: 9.5, marginTop: 6, lineHeight: 1.45 }}>
-            Bars scale to the longest estimated wait. Equal-ETA files batch by destination folder.
-          </div>
+          {whatIf ? (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ color: '#f5d78e', fontSize: 9.5, lineHeight: 1.45 }}>
+                Preview only — nothing applied yet. Steppers re-rank the start order live.
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>
+                <button type="button" data-testid="dl-whatif-apply" style={applyBtn} onClick={applyPreview}>
+                  Apply limits
+                </button>
+                <button type="button" data-testid="dl-whatif-reset" style={resetBtn} onClick={resetPreview}>
+                  Reset
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ color: '#5b6b84', fontSize: 9.5, marginTop: 6, lineHeight: 1.45 }}>
+              Bars scale to the longest estimated wait. Equal-ETA files batch by destination folder.
+            </div>
+          )}
         </div>
       )}
       {running.map((d) => {
@@ -397,7 +478,17 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                       : 'Queued — waiting for a free slot'
                     : paused
                       ? 'Paused — partial kept · resume anytime'
-                      : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
+                      : smartOrder && d.etaBasis && d.etaSeconds != null
+                        ? (
+                            <span data-testid="dl-eta-active" data-eta-sec={Math.round(d.etaSeconds)} data-basis={d.etaBasis}>
+                              {fmt.formatBytes(d.received)}
+                              {d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}
+                              {pct != null ? ` (${Math.floor(pct)}%)` : ''} · ~{fmtEta(d.etaSeconds)} left ·{' '}
+                              <span style={{ color: '#5b6b84' }}>{fmt.formatBytes(d.etaRateBps)}/s {ETA_BASIS_WORDS[d.etaBasis] || d.etaBasis}</span>
+                              {d.resumed ? ' · resumed from partial' : ''}
+                            </span>
+                          )
+                        : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
                 </div>
               </div>
               {queued && !smartOrder && (
@@ -719,6 +810,49 @@ const limitBtn = {
   lineHeight: 1,
   cursor: 'pointer',
   flexShrink: 0,
+};
+const whatIfBtn = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  height: 20,
+  padding: '0 8px',
+  borderRadius: 99,
+  border: '1px solid #22d3ee55',
+  color: '#7ce7f7',
+  fontSize: 9.5,
+  fontWeight: 650,
+  lineHeight: 1,
+  cursor: 'pointer',
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
+};
+const applyBtn = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 22,
+  padding: '0 10px',
+  borderRadius: 7,
+  background: 'rgba(34,211,238,0.12)',
+  border: '1px solid #22d3ee55',
+  color: '#7ce7f7',
+  fontSize: 10,
+  fontWeight: 650,
+  cursor: 'pointer',
+};
+const resetBtn = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 22,
+  padding: '0 10px',
+  borderRadius: 7,
+  background: 'transparent',
+  border: '1px solid #22314b',
+  color: '#8494ab',
+  fontSize: 10,
+  fontWeight: 600,
+  cursor: 'pointer',
 };
 
 const clearBtn = {
