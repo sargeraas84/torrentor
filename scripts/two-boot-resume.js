@@ -14,6 +14,14 @@
 //     HTTP Range request continued from the partial byte), and completed
 //     to the exact full size.
 //
+// A second scenario proves a USER PAUSE survives a restart:
+//   boot #1 (phase 'pause-start')  — starts a genuine download, pauses it
+//     via the real pause IPC, remembers a per-source default folder, quits.
+//   boot #2 (phase 'pause-verify') — relaunches and asserts the transfer
+//     came back PARKED (status 'paused', .part intact, zero network
+//     activity — a user pause is never auto-resumed) and the per-source
+//     folder rule survived.
+//
 // Both boots run the unmodified main.js + renderer over the real IPC
 // bridge; only the smoke-mode env (TORRENTOR_SMOKE) is set, which routes
 // the save dialog to a temp path and lets the local server host be
@@ -41,13 +49,14 @@ function makePayload() {
   return buf;
 }
 
-function serveSlow(payload, ranges) {
+function serveSlow(payload, ranges, reqLog) {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       const m = /^bytes=(\d+)-/.exec(req.headers.range || '');
       const from = m ? Number(m[1]) : 0;
       const partial = payload.subarray(from);
       ranges.push(from);
+      if (reqLog) reqLog.push({ from, url: req.url });
       if (from > 0) {
         res.statusCode = 206;
         res.setHeader('content-range', `bytes ${from}-${payload.length - 1}/${payload.length}`);
@@ -145,6 +154,54 @@ async function main() {
     const resumedFrom = Math.max(...ranges.slice(1));
     ok('boot #2: interrupted download auto-resumed from its .part', `continued from byte ${resumedFrom} → full ${SIZE}-byte file`);
     ok('Range resume proven end-to-end across two real app boots', `${ranges.length - 1} Range request(s) after boot #1's partial`);
+
+    // ------- scenario 2: a user pause + per-source folder rule survive -------
+    let server2 = null;
+    let dataDir2 = null;
+    try {
+      const payload2 = makePayload();
+      const reqLog = [];
+      server2 = await serveSlow(payload2, [], reqLog);
+      const { port: port2 } = server2.address();
+      dataDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-pause-boot-'));
+      const pauseDir = path.join(dataDir2, 'archive-saves');
+      const url2 = `http://127.0.0.1:${port2}/pause-me-${Date.now()}.bin`;
+      const env2 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir2,
+        TORRENTOR_RESUME_URL: url2,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+        TORRENTOR_PAUSE_DIR: pauseDir,
+      };
+
+      // boot #1: genuine download → real pause IPC → folder rule → quit.
+      const b1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env2, { TORRENTOR_RESUME_PHASE: 'pause-start' }));
+      check(b1.code === 0, `pause boot #1 exited ${b1.code} — ${b1.err.slice(0, 200)}`);
+      check(/PAUSE_BOOT1_DOWNLOADING/.test(b1.out), 'pause boot #1 flowed bytes before pausing');
+      check(/PAUSE_BOOT1_PAUSED/.test(b1.out), 'pause boot #1 paused the transfer');
+      check(/PAUSE_BOOT1_QUITTING/.test(b1.out), 'pause boot #1 quit after pausing');
+      const reqsBeforeBoot2 = reqLog.length;
+
+      // boot #2: the paused transfer must come back PARKED, the .part kept,
+      // the per-source folder rule intact — and the server must see ZERO new
+      // requests (a user pause is never auto-resumed).
+      const b2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env2, { TORRENTOR_RESUME_PHASE: 'pause-verify' }));
+      check(b2.code === 0, `pause boot #2 exited ${b2.code} — ${b2.err.slice(0, 200)}`);
+      check(/PAUSE_BOOT2_PAUSED/.test(b2.out), 'boot #2 restored the transfer as paused');
+      check(/PAUSE_BOOT2_FOLDER_OK/.test(b2.out), 'boot #2 saw the per-source folder rule');
+      check(reqLog.length === reqsBeforeBoot2, `paused transfer must not touch the server in boot #2 (${reqsBeforeBoot2} -> ${reqLog.length} requests)`);
+      ok('pause: paused transfer stayed paused across a relaunch', 'parked, .part kept, zero network activity');
+      ok('pause: per-source folder rule survived the relaunch', `downloadDirs['archive-org'] → ${pauseDir}`);
+    } finally {
+      if (server2) server2.close();
+      if (dataDir2) {
+        try {
+          fs.rmSync(dataDir2, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
   } finally {
     server.close();
     try {

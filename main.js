@@ -78,6 +78,8 @@ async function bootstrap() {
   // registered for the two-boot auto-resume test.
   downloads.setDefaultSpeedLimit(Number(storage.getPrefs().downloadSpeedLimit) || 0);
   downloads.setDefaultAllowHosts(downloadAllowHosts());
+  // Lifetime per-source download tallies for the Library views.
+  downloads.setStats(storage.getStats() || {});
 
   // Auto-resume interrupted downloads: transfers that were in flight when
   // the app last quit were persisted (url + approved destination). They
@@ -262,9 +264,13 @@ function broadcastDownloads(kind, id) {
   broadcast('downloads:changed', { snapshot: downloads.snapshot(), kind: kind || 'changed', id: id || null });
   // Persist whatever is still in flight so an interrupted download
   // auto-resumes on next launch (finished/cancelled entries drop out of
-  // the resumable set on their final transition).
+  // the resumable set on their final transition) — and keep the lifetime
+  // per-source tallies on disk too.
   try {
-    if (storage) storage.setTransfers(downloads.resumableSnapshot());
+    if (storage) {
+      storage.setTransfers(downloads.resumableSnapshot());
+      storage.setStats(downloads.statsSnapshot());
+    }
   } catch {
     /* persistence is best-effort */
   }
@@ -471,6 +477,11 @@ function registerIpc() {
 
   handle('downloads:list', () => downloads.snapshot());
 
+  // Lifetime per-source download tallies (count + bytes per engine id) for
+  // the Library views. Live from the manager, which main seeded from
+  // storage at boot and persists on every download transition.
+  handle('downloads:stats', () => downloads.statsSnapshot());
+
   handle('downloads:clear', () => {
     downloads.clearFinished();
     return downloads.snapshot();
@@ -620,6 +631,13 @@ function registerIpc() {
   // Manual queue reordering: 'up' starts the transfer sooner, 'down' later.
   handle('download:move', ({ id, dir }) => {
     downloads.moveQueued(Number(id), String(dir || ''), (entry, kind) => broadcastDownloads(kind, entry.id));
+    return downloads.snapshot();
+  });
+
+  // Drag-and-drop queue reordering: move a queued transfer to an absolute
+  // queue position (the dropped-on sibling's index).
+  handle('download:moveTo', ({ id, toIndex }) => {
+    downloads.moveQueuedTo(Number(id), Number(toIndex), (entry, kind) => broadcastDownloads(kind, entry.id));
     return downloads.snapshot();
   });
 

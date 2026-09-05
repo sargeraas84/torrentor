@@ -150,13 +150,15 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onPause, onResumeAll, onRemoveAll }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
   const running = [...actives, ...queuedItems, ...pausedItems];
   const finished = downloads.filter((d) => d.status !== 'downloading' && d.status !== 'queued' && d.status !== 'paused');
   const queuedCount = queuedItems.length;
+  const [dragId, setDragId] = useState(null); // queued id being dragged
+  const [dropId, setDropId] = useState(null); // queued id currently hovered as drop target
   if (!downloads.length) return null;
 
   return (
@@ -180,8 +182,50 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         const paused = d.status === 'paused';
         const pct = !queued && !paused && d.total ? Math.min(100, (d.received / d.total) * 100) : null;
         const folderNote = d.dir && !queued ? d.dir + (d.folderRule ? ` — ${d.folderRule}` : '') : '';
+        // Drag-and-drop reorder only applies to queued chips: the dragged
+        // chip dims, the hovered sibling highlights, and a drop splices the
+        // dragged transfer into that sibling's queue position.
+        const dndProps = queued
+          ? {
+              draggable: true,
+              onDragStart: (e) => {
+                e.dataTransfer.setData('text/plain', String(d.id));
+                e.dataTransfer.effectAllowed = 'move';
+                setDragId(d.id);
+              },
+              onDragOver: (e) => {
+                if (dragId == null) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                setDropId(d.id);
+              },
+              onDrop: (e) => {
+                e.preventDefault();
+                const id = Number(e.dataTransfer.getData('text/plain'));
+                if (id && id !== d.id && onMoveTo) onMoveTo(id, d.queuePos);
+                setDragId(null);
+                setDropId(null);
+              },
+              onDragEnd: () => {
+                setDragId(null);
+                setDropId(null);
+              },
+            }
+          : {};
         return (
-          <div key={d.id} style={chip}>
+          <div
+            key={d.id}
+            data-testid="dl-chip"
+            data-id={d.id}
+            data-status={d.status}
+            {...dndProps}
+            style={{
+              ...chip,
+              ...(dragId === d.id ? { opacity: 0.45 } : {}),
+              ...(queued && dropId === d.id ? { borderColor: '#22d3ee88' } : {}),
+              ...(queued && queuedItems.length > 1 ? { cursor: 'grab' } : {}),
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {queued ? (
                 <I.clock size={13} style={{ color: '#8494ab', flexShrink: 0 }} />

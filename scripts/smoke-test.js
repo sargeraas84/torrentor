@@ -1057,6 +1057,39 @@ async function main() {
     dm.clearFinished();
   });
 
+  ok('scheduler: moveQueuedTo reorders to an absolute position (drag-and-drop)', async () => {
+    dm.clearFinished();
+    const mk = (n) => path.join(dmDir, `dnd-${n}.txt`);
+    const a = dm.startDownload('demo:content', mk('a'));
+    const b = dm.startDownload('demo:content', mk('b'));
+    const c = dm.startDownload('demo:readme', mk('c'));
+    const d = dm.startDownload('demo:content', mk('d'));
+    const e = dm.startDownload('demo:readme', mk('e'));
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    assert.strictEqual(c.status, 'queued');
+    assert.strictEqual(d.status, 'queued');
+    assert.strictEqual(e.status, 'queued');
+    const q = () =>
+      dm
+        .snapshot()
+        .filter((t) => t.status === 'queued' && t.filePath.startsWith(dmDir))
+        .map((t) => t.id);
+    assert.deepStrictEqual(q(), [c.id, d.id, e.id], 'initial queue order');
+    // Drag e onto d's slot: e splices into position 1.
+    assert.strictEqual(dm.moveQueuedTo(e.id, 1).id, e.id);
+    assert.deepStrictEqual(q(), [c.id, e.id, d.id], 'dragged e into d\'s position');
+    // Drag c to the tail.
+    dm.moveQueuedTo(c.id, 2);
+    assert.deepStrictEqual(q(), [e.id, d.id, c.id], 'c dragged to the tail');
+    // Same-position no-op + unknown + active rejections.
+    assert.strictEqual(dm.moveQueuedTo(e.id, 0), null, 'same position is a no-op');
+    assert.strictEqual(dm.moveQueuedTo(999999, 0), null, 'unknown id rejected');
+    assert.strictEqual(dm.moveQueuedTo(a.id, 0), null, 'active transfer not draggable');
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 8000);
+    dm.clearFinished();
+  });
+
   ok('scheduler: per-download speed limit applies live and survives retry', async () => {
     dm.clearFinished();
     const t = dm.startDownload('demo:content', path.join(dmDir, 'limit-demo.txt'));
@@ -1121,7 +1154,8 @@ async function main() {
       const snap = dm.snapshot().find((x) => x.id === t.id);
       assert.strictEqual(snap.status, 'paused', 'transfer parked as paused');
       assert.strictEqual(snap.queuePos, -1, 'paused transfer is not in the start queue');
-      assert.ok(!dm.resumableSnapshot().some((r) => r.filePath === dest), 'paused transfer does NOT auto-resume on relaunch');
+      const pausedRec = dm.resumableSnapshot().find((r) => r.filePath === dest);
+      assert.ok(pausedRec && pausedRec.status === 'paused', 'paused transfer persisted as paused (parks, never auto-resumes)');
       // Manual resume: lift the limit (the pause kept it at 100 KB/s) and
       // restart — a real URL would continue its .part via HTTP Range.
       dm.setSpeedLimit(t.id, 0);
@@ -1205,6 +1239,62 @@ async function main() {
     dm.clearFinished();
   });
 
+  ok('scheduler: paused records restore parked across a restart', async () => {
+    dm.clearFinished();
+    const dest = path.join(dmDir, 'paused-restore.txt');
+    const busyDest = path.join(dmDir, 'paused-busy.txt');
+    // Restore a paused record AND a queued record together: only the queued
+    // one may stream; the paused one must park (a user pause is respected).
+    const n = dm.restorePending(
+      [
+        { url: 'demo:content', filePath: dest, demo: true, maxBytesPerSec: 102400, status: 'paused' },
+        { url: 'demo:readme', filePath: busyDest, demo: true, maxBytesPerSec: 0 },
+      ],
+      () => {}
+    );
+    assert.strictEqual(n, 2, 'both records accepted');
+    const parked = dm.snapshot().find((x) => x.filePath === dest);
+    assert.ok(parked, 'paused record restored');
+    assert.strictEqual(parked.status, 'paused', 'parked, not started');
+    assert.strictEqual(parked.queuePos, -1, 'not in the start queue');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.strictEqual(dm.getDownload(parked.id).status, 'paused', 'still parked after the queue ran');
+    const rec = dm.resumableSnapshot().find((r) => r.filePath === dest);
+    assert.ok(rec && rec.status === 'paused', 'paused record persists as paused');
+    // Manual resume continues it.
+    const resumed = dm.retryDownload(parked.id);
+    assert.ok(resumed && resumed.status === 'downloading', 'manual resume starts the parked transfer');
+    dm.setSpeedLimit(parked.id, 0);
+    await waitFor(() => dm.getDownload(parked.id).status === 'done', 8000);
+    assert.ok(fs.existsSync(dest) && fs.statSync(dest).size > 0, 'resumed file written');
+    dm.clearFinished();
+  });
+
+  ok('download stats: recordStats tallies per source and round-trips', async () => {
+    dm.setStats({});
+    dm.recordStats('https://archive.org/download/foo/bar.mp4', 1500);
+    dm.recordStats('demo:content', 768 * 1024);
+    dm.recordStats('https://unknown.example/x.bin', 42);
+    const snap = dm.statsSnapshot();
+    assert.strictEqual(snap['archive-org'].count, 1, 'archive tallied');
+    assert.strictEqual(snap['archive-org'].bytes, 1500, 'archive bytes exact');
+    assert.strictEqual(snap['demo-curated'].count, 1, 'demo tallied');
+    assert.strictEqual(snap['demo-curated'].bytes, 768 * 1024, 'demo bytes exact');
+    assert.strictEqual(snap['other'].count, 1, 'unmapped host buckets under other');
+    // Persistence round-trip: seed a fresh tally with the snapshot.
+    dm.setStats({});
+    dm.setStats(snap);
+    assert.deepStrictEqual(dm.statsSnapshot(), snap, 'seed → snapshot round-trip');
+    dm.setStats({});
+    // A completed transfer credits its source automatically.
+    const t = dm.startDownload('demo:readme', path.join(dmDir, 'stats-demo.txt'));
+    await waitFor(() => dm.getDownload(t.id) && dm.getDownload(t.id).status === 'done', 5000);
+    assert.strictEqual(dm.statsSnapshot()['demo-curated'].count, 1, 'done transfer recorded');
+    assert.ok(dm.statsSnapshot()['demo-curated'].bytes > 0, 'done transfer bytes recorded');
+    dm.setStats({});
+    dm.clearFinished();
+  });
+
   ok('engineForUrl maps direct-file URLs to their engine (per-source folders)', () => {
     assert.strictEqual(dm.engineForUrl('https://archive.org/download/x/y.mp4'), 'archive-org');
     assert.strictEqual(dm.engineForUrl('https://releases.ubuntu.com/24.04/x.iso'), 'distro-releases');
@@ -1221,9 +1311,12 @@ async function main() {
     assert.deepStrictEqual(s1.getTransfers(), []);
     const recs = [{ url: 'demo:content', filePath: '/tmp/x.bin', demo: true, maxBytesPerSec: 512 * 1024 }];
     s1.setTransfers(recs);
+    s1.setStats({ 'archive-org': { count: 3, bytes: 4096 }, other: { count: 1, bytes: 7 } });
     s1.flush();
     const s2 = new Storage(stDir);
     assert.deepStrictEqual(s2.getTransfers(), recs, 'records survive a storage reload');
+    assert.deepStrictEqual(s2.getStats(), { 'archive-org': { count: 3, bytes: 4096 }, other: { count: 1, bytes: 7 } }, 'stats survive a storage reload');
+    assert.deepStrictEqual(s2.getStats().demo, undefined, 'no phantom engine buckets');
     await new Promise((r) => setTimeout(r, 320)); // let debounced writes settle
     fs.rmSync(stDir, { recursive: true, force: true });
   });

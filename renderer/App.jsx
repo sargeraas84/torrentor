@@ -4,7 +4,7 @@ const { useEffect, useRef, useState, useCallback } = require('react');
 const TitleBar = require('./components/TitleBar');
 const EngineChips = require('./components/EngineChips');
 const ResultCard = require('./components/ResultCard');
-const { FavoritesView, HistoryView } = require('./components/LibraryView');
+const { FavoritesView, HistoryView, DownloadStatsPanel } = require('./components/LibraryView');
 const SettingsModal = require('./components/SettingsModal');
 const { FilesModal, DownloadTray } = require('./components/Downloads');
 const { I, CATEGORY_META } = require('./components/icons');
@@ -50,9 +50,11 @@ function App() {
   const [archiveHasMore, setArchiveHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [retryingId, setRetryingId] = useState(null);
-  // Direct downloads: transfer tray list + the open Archive file picker.
+  // Direct downloads: transfer tray list, the open Archive file picker,
+  // and lifetime per-source tallies for the Library views.
   const [downloads, setDownloads] = useState([]);
   const [filesItem, setFilesItem] = useState(null);
+  const [dlStats, setDlStats] = useState(null);
 
   const seqRef = useRef(0);
   const toastTimer = useRef(null);
@@ -131,6 +133,21 @@ function App() {
       /* non-fatal */
     }
   };
+  const moveDlTo = async (id, toIndex) => {
+    try {
+      const list = await api.moveDownloadTo(id, toIndex);
+      setDownloads(list || []);
+    } catch {
+      /* non-fatal */
+    }
+  };
+  const refreshDlStats = useCallback(async () => {
+    try {
+      setDlStats((await api.getDownloadStats()) || null);
+    } catch {
+      /* non-fatal — panel stays hidden */
+    }
+  }, []);
   const resumeAllDl = async () => {
     try {
       const list = await api.resumePausedDownloads();
@@ -182,13 +199,19 @@ function App() {
     });
     const unsubHealth = api.onHealthProgress((list) => setHealth(list || []));
     const unsubMax = api.onMaximized(setMaxed);
-    const unsubDl = api.onDownloadsChanged(({ snapshot }) => setDownloads(snapshot || []));
+    const unsubDl = api.onDownloadsChanged(({ snapshot, kind }) => {
+      setDownloads(snapshot || []);
+      // A completed transfer moves bytes between sources' tallies — keep
+      // the Library panel fresh without polling.
+      if (kind === 'done') refreshDlStats();
+    });
     api
       .getDownloads()
       .then((list) => setDownloads(list || []))
       .catch(() => {
         /* non-fatal */
       });
+    refreshDlStats();
     api
       .exploreTiles()
       .then((tiles) => setExploreTiles(Array.isArray(tiles) ? tiles : []))
@@ -201,7 +224,7 @@ function App() {
       unsubMax();
       unsubDl();
     };
-  }, []);
+  }, [refreshDlStats]);
 
   // ----- search ---------------------------------------------------------
   const runSearch = useCallback(
@@ -624,6 +647,7 @@ function App() {
             </div>
           )}
 
+          {(view === 'favorites' || view === 'history') && <DownloadStatsPanel stats={dlStats} engines={engines} />}
           {view === 'favorites' && <FavoritesView favorites={favorites} onFavToggle={toggleFavorite} />}
           {view === 'history' && <HistoryView history={history} onRun={(q) => runSearch(q)} onClear={clearHistory} />}
         </div>
@@ -631,7 +655,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} />
 
       {settingsOpen && (
         <SettingsModal

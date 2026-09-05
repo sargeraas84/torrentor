@@ -392,6 +392,53 @@ async function main() {
   const revealBtn = await js(`!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-reveal"]')`);
   if (!revealBtn) defect('finished transfer offers reveal-in-folder', 'dl-reveal missing');
   else ok('finished transfer offers reveal-in-folder');
+
+  // ===== 10. Drag-and-drop reorders the start queue =====
+  // Seed four paced demo downloads (the 100 KB/s default keeps both active
+  // slots busy, so two chips queue), then DRAG the first queued chip onto
+  // the second and assert the queue order flipped. Dispatched DragEvents
+  // with a real DataTransfer drive the same React handlers a mouse drag
+  // would.
+  // Distinct demo URLs: SMOKE-mode destinations embed Date.now(), so four
+  // identical URLs started in the same millisecond would collide as
+  // duplicates; distinct tokens sidestep that and still produce the same
+  // paced 768 KB payload.
+  await js(`(() => {
+      return Promise.all(['demo:content', 'demo:content2', 'demo:content3', 'demo:content4'].map((u) => window.torrentor.downloadFile(u)));
+    })()`);
+  await waitFor('two demo transfers queue behind the paced actives', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length === 2`, 10000);
+  const orderBefore = await js(`[...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]')].map((c) => Number(c.getAttribute('data-id')))`);
+  if (orderBefore.length !== 2) throw new Error(`Expected 2 queued chips for the drag, got ${orderBefore.length}`);
+  const dragSim = await js(`(() => {
+      const chips = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]')];
+      if (chips.length < 2) return false;
+      const [src, dst] = chips;
+      const dt = new DataTransfer();
+      src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      dst.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      dst.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      return true;
+    })()`);
+  if (!dragSim) throw new Error('Drag simulation failed to find two queued chips');
+  await waitFor('queue order flips after the drag', `(() => {
+      const ids = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]')].map((c) => Number(c.getAttribute('data-id')));
+      return ids.length === 2 && ids[0] === ${orderBefore[1]} && ids[1] === ${orderBefore[0]};
+    })()`, 6000);
+  ok('drag-and-drop reorders the start queue', `queued ${orderBefore.join(', ')} → ${orderBefore[1]}, ${orderBefore[0]}`);
+  // Lift every limit so the seeded batch drains fast, then confirm the
+  // Library view's per-source tallies picked up all completed transfers.
+  await js(`(async () => {
+      const ids = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"]')].map((c) => Number(c.getAttribute('data-id')));
+      await Promise.all(ids.map((id) => window.torrentor.setDownloadLimit(id, 0)));
+      return ids.length;
+    })()`);
+  await waitFor('all seeded demo transfers finish', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return t && (t.innerText.match(/Done/g) || []).length >= 5; })()`, 30000);
+  await click('[data-testid="tab-favorites"]');
+  await waitFor('downloads-by-source panel on the Library view', `(() => { const p = document.querySelector('[data-testid="dl-stats"]'); return p && p.innerText.includes('Demo'); })()`, 6000);
+  const statsTxt = await textOf('[data-testid="dl-stats"]');
+  ok('Library shows per-source download tallies', String(statsTxt || '').replace(/\s+/g, ' ').slice(0, 70));
+  await click('[data-testid="tab-search"]');
   // Close the picker (its overlay sits above the tray), then clear.
   await click('[data-testid="files-modal"] button[aria-label="Close"]');
   await waitFor('picker closed', `!document.querySelector('[data-testid="files-modal"]')`);

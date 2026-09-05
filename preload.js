@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('torrentor', {
 
   // ----- direct downloads (main-process streaming; hosts allowlisted)
   getDownloads: bridge('downloads:list'),
+  getDownloadStats: bridge('downloads:stats'),
   clearDownloads: bridge('downloads:clear'),
   onDownloadsChanged: (cb) => subscribe('downloads:changed', cb),
   itemFiles: bridge('download:itemFiles', (sourceId, itemId) => ({ sourceId, itemId })),
@@ -78,6 +79,7 @@ contextBridge.exposeInMainWorld('torrentor', {
   cancelDownload: bridge('download:cancel', (id) => ({ id })),
   setDownloadLimit: bridge('download:limit', (id, bytesPerSec) => ({ id, bytesPerSec })),
   moveDownload: bridge('download:move', (id, dir) => ({ id, dir })),
+  moveDownloadTo: bridge('download:moveTo', (id, toIndex) => ({ id, toIndex })),
   resumePausedDownloads: bridge('download:pausedResume'),
   removePausedDownloads: bridge('download:pausedRemove'),
   revealDownload: bridge('downloads:reveal', (id) => ({ id })),

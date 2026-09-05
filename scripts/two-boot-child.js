@@ -10,6 +10,14 @@
 // Phase 'verify' (boot #2): boots the real app on the SAME data dir and
 //   asserts the interrupted download was auto-re-enqueued, resumed from
 //   its .part (resumed === true) and completed to the full size.
+//
+// Pause scenario (a user pause must survive a restart):
+// Phase 'pause-start'  (boot #1): starts a genuine download, pauses it
+//   through the real pause IPC, remembers a per-source default folder,
+//   then quits.
+// Phase 'pause-verify' (boot #2): asserts the transfer came back PARKED
+//   (status 'paused', .part intact, no auto-resume), and the per-source
+//   folder rule is still in prefs.
 // ---------------------------------------------------------------------
 
 const { app, BrowserWindow } = require('electron');
@@ -20,6 +28,7 @@ const fs = require('fs');
 const PHASE = process.env.TORRENTOR_RESUME_PHASE || '';
 const DL_URL = process.env.TORRENTOR_RESUME_URL || '';
 const EXPECTED = Number(process.env.TORRENTOR_RESUME_EXPECTED_BYTES) || 0;
+const PAUSE_DIR = process.env.TORRENTOR_PAUSE_DIR || '';
 
 process.env.TORRENTOR_SMOKE = '1';
 if (!process.env.TORRENTOR_DATA_DIR) {
@@ -82,6 +91,71 @@ async function phaseStart(win) {
   app.quit();
 }
 
+async function phasePauseStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  const started = await js(`window.torrentor.downloadFile(${JSON.stringify(DL_URL)})`);
+  const t0 = started && started.transfer;
+  if (!t0 || started.cancelled || t0.status !== 'downloading') {
+    throw new Error(`download did not start cleanly: status=${t0 && t0.status} error=${t0 && t0.error}`);
+  }
+  const id = started.transfer.id;
+  const seen = await waitFor(
+    'boot#1 pause-bytes flowing',
+    () => js(`window.torrentor.getDownloads().then((l) => { const t = l.find((x) => x.id === ${id}); return t && t.received > 0 ? { id: t.id, received: t.received, status: t.status } : null; })`)
+  );
+  console.log(`PAUSE_BOOT1_DOWNLOADING id=${id} received=${seen.received}`);
+  // Pause mid-stream through the SAME IPC the tray's pause button uses.
+  const statusAfter = await js(
+    `window.torrentor.pauseDownload(${id}).then((l) => { const t = (l || []).find((x) => x.id === ${id}); return t ? t.status : null; })`
+  );
+  if (statusAfter !== 'paused') throw new Error(`pause failed: status=${statusAfter}`);
+  console.log('PAUSE_BOOT1_PAUSED');
+  // Remember a per-source default folder (Settings → Library semantics).
+  const saved = await js(
+    `window.torrentor.setPrefs({ downloadDir: ${JSON.stringify(PAUSE_DIR)}, downloadDirs: { 'archive-org': ${JSON.stringify(PAUSE_DIR)} } })`
+  );
+  if (!saved || (saved.downloadDirs || {})['archive-org'] !== PAUSE_DIR) throw new Error('per-source folder pref did not save');
+  // Let the debounced persistence + the pause transition settle, then quit
+  // (before-quit flushes prefs + the paused transfer record).
+  await new Promise((r) => setTimeout(r, 600));
+  console.log('PAUSE_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phasePauseVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  const found = await waitFor(
+    'boot#2 paused transfer restored from persistence',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const t = list.find((x) => x.url === ${JSON.stringify(DL_URL)});
+        if (!t || t.status !== 'paused') return null;
+        return { id: t.id, status: t.status, filePath: t.filePath };
+      })()`)
+  );
+  // Give it real time to prove it does NOT auto-resume — an auto-resume
+  // would Range-continue the .part within a moment.
+  await new Promise((r) => setTimeout(r, 1500));
+  const still = await js(
+    `(async () => { const list = await window.torrentor.getDownloads(); const t = list.find((x) => x.url === ${JSON.stringify(DL_URL)}); return t ? t.status : null; })()`
+  );
+  if (still !== 'paused') throw new Error(`paused transfer auto-resumed or vanished: status=${still}`);
+  if (!fs.existsSync(found.filePath + '.part')) throw new Error('partial file missing after restart');
+  console.log('PAUSE_BOOT2_PAUSED status=paused partial=kept');
+  const prefs = await js(`window.torrentor.getState().then((s) => s.prefs || {})`);
+  const dir = (prefs.downloadDirs || {})['archive-org'];
+  if (dir !== PAUSE_DIR) throw new Error(`downloadDirs['archive-org'] = ${dir}, expected ${PAUSE_DIR}`);
+  console.log(`PAUSE_BOOT2_FOLDER_OK dir=${dir}`);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
+}
+
 async function phaseVerify(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const found = await waitFor(
@@ -112,6 +186,8 @@ async function main() {
     const win = await getWindow();
     if (PHASE === 'start') await phaseStart(win);
     else if (PHASE === 'verify') await phaseVerify(win);
+    else if (PHASE === 'pause-start') await phasePauseStart(win);
+    else if (PHASE === 'pause-verify') await phasePauseVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));
