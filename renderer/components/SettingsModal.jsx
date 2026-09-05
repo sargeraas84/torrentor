@@ -156,6 +156,16 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
     cur.sort((a, b) => a - b);
     setNm({ days: cur.length ? cur : undefined });
   };
+  // One-click weekday presets next to the manual toggles (null = every day).
+  const NIGHT_DAY_PRESETS = [
+    { id: 'weekdays', label: 'Weekdays', days: [1, 2, 3, 4, 5] },
+    { id: 'weekends', label: 'Weekends', days: [0, 6] },
+    { id: 'every', label: 'Every day', days: null },
+  ];
+  const setNmDayPreset = (id) => {
+    const p = NIGHT_DAY_PRESETS.find((x) => x.id === id);
+    if (p) setNm({ days: p.days ? p.days.slice() : undefined });
+  };
 
   const enabledCount = engines.filter((e) => e.enabled).length;
 
@@ -560,6 +570,33 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                         );
                       })}
                       {!nm.days && <span style={{ color: '#5b6b84', fontSize: 10.5 }}>every day</span>}
+                      <select
+                        data-testid="night-mode-days-preset"
+                        className="app-nodrag"
+                        value=""
+                        onChange={(e) => {
+                          setNmDayPreset(e.target.value);
+                          e.target.value = '';
+                        }}
+                        style={{
+                          marginLeft: 4,
+                          height: 22,
+                          flexShrink: 0,
+                          borderRadius: 6,
+                          background: '#0b1526',
+                          border: '1px solid #22314b',
+                          color: '#8494ab',
+                          fontSize: 10,
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="">preset…</option>
+                        {NIGHT_DAY_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 ) : (

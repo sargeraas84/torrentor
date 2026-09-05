@@ -297,6 +297,10 @@ function App() {
       // A completed transfer moves bytes between sources' tallies — keep
       // the Library panel fresh without polling.
       if (kind === 'done') refreshDlStats();
+      // Plan mutations (save/delete/apply/clear) broadcast — refresh prefs
+      // so the tray's switcher list stays current even when a plan changes
+      // from another source (IPC, another window).
+      if (kind === 'plan') refreshPrefs();
     });
     api
       .getDownloads()

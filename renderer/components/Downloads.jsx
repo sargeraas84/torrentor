@@ -36,6 +36,14 @@ const DAY_BUTTONS = [
 ];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// One-click weekday presets for the schedule editors (null days = every
+// day). Shown next to the manual toggles so common patterns need no tapping.
+const DAY_PRESETS = [
+  { id: 'weekdays', label: 'Weekdays', days: [1, 2, 3, 4, 5] },
+  { id: 'weekends', label: 'Weekends', days: [0, 6] },
+  { id: 'every', label: 'Every day', days: null },
+];
+
 /** 'Mon–Fri' style summary for a days array ('' when null/empty = every day). */
 function daysText(days) {
   if (!Array.isArray(days) || !days.length) return '';
@@ -295,6 +303,14 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   // Settings night mode (global clock-window cap) — dimmed pill when set but
   // outside the window, bright 'throttling now' while inside.
   const nightSched = (nightMode && nightMode.schedule) || null;
+  // Cap-overlap warning: when the applied plan's window AND night mode are
+  // both active right now with DIFFERENT caps, the tray names the conflict
+  // and which tighter cap actually wins. Equal caps (or one window off) is
+  // not a conflict worth a row.
+  const overlapPlanCap = appliedPlan && appliedPlan.windowActive && appliedPlan.capNow > 0 ? appliedPlan.capNow : null;
+  const overlapNightCap = nightMode && nightMode.windowActive && nightMode.capNow > 0 ? nightMode.capNow : null;
+  const capOverlap = overlapPlanCap != null && overlapNightCap != null && overlapPlanCap !== overlapNightCap;
+  const overlapWinner = capOverlap ? (overlapPlanCap < overlapNightCap ? 'plan' : 'night') : null;
   // What-if preview plumbing: hypothetical limits go to the manager (which
   // ranks exactly as Apply would) and come back as an ordered row list.
   const fetchPreview = async (patch) => {
@@ -369,6 +385,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     }
   };
   const togglePlanDay = (v) => setPlanSchedule((s) => (s ? { ...s, days: toggleDays(s.days, v) } : s));
+  const applyPlanDayPreset = (days) => setPlanSchedule((s) => (s ? { ...s, days: days ? days.slice() : undefined } : s));
   const reapplyPlan = async (name) => {
     if (onReapplyPlan) await onReapplyPlan(name);
   };
@@ -595,6 +612,40 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
           </button>
         </div>
       )}
+      {capOverlap && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+          <div
+            data-testid="dl-cap-overlap"
+            data-plan-cap={overlapPlanCap}
+            data-night-cap={overlapNightCap}
+            data-wins={overlapWinner}
+            title={
+              overlapWinner === 'plan'
+                ? `The applied plan “${appliedName}” caps the queue at ${fmt.formatBytes(overlapPlanCap)}/s — tighter than night mode's ${fmt.formatBytes(overlapNightCap)}/s, so it wins while both windows are active`
+                : `Night mode caps the queue at ${fmt.formatBytes(overlapNightCap)}/s — tighter than the applied plan's ${fmt.formatBytes(overlapPlanCap)}/s, so it wins while both windows are active`
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              height: 20,
+              padding: '0 8px',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 650,
+              whiteSpace: 'nowrap',
+              background: 'rgba(251,113,133,0.10)',
+              border: '1px solid #fb718555',
+              color: '#fda4af',
+            }}
+          >
+            <I.info size={10} style={{ flexShrink: 0 }} />
+            {overlapWinner === 'plan'
+              ? `plan “${appliedName}” ${fmt.formatBytes(overlapPlanCap)}/s wins over night ${fmt.formatBytes(overlapNightCap)}/s`
+              : `night mode ${fmt.formatBytes(overlapNightCap)}/s wins over plan's ${fmt.formatBytes(overlapPlanCap)}/s`}
+          </div>
+        </div>
+      )}
       {showQueueInfo && smartOrder && queuedItems.length > 0 && (
         <div
           data-testid="dl-smart-pop"
@@ -762,6 +813,34 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                       {!planSchedule.days && (
                         <span style={{ color: '#5b6b84', fontSize: 8.5, marginLeft: 2 }}>every day</span>
                       )}
+                      <select
+                        data-testid="dl-plan-days-preset"
+                        className="app-nodrag"
+                        value=""
+                        onChange={(e) => {
+                          const p = DAY_PRESETS.find((x) => x.id === e.target.value);
+                          if (p) applyPlanDayPreset(p.days);
+                          e.target.value = '';
+                        }}
+                        style={{
+                          marginLeft: 4,
+                          flexShrink: 0,
+                          height: 16,
+                          borderRadius: 4,
+                          background: '#0b1526',
+                          border: '1px solid #22314b',
+                          color: '#8494ab',
+                          fontSize: 8,
+                          outline: 'none',
+                        }}
+                      >
+                        <option value="">preset…</option>
+                        {DAY_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 ) : (

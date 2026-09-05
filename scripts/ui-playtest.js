@@ -415,9 +415,17 @@ async function main() {
   await wait(80);
   await js(`(() => { const el = document.querySelector('[data-testid="night-mode-cap"]'); if (!el) return false; el.value = '102400'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await wait(200);
-  // Restrict the night window to TODAY's weekday — the selector must persist
-  // into prefs AND keep the window active for the assertions below.
+  // The weekday editor has one-click PRESETS. Pick 'Weekends' and watch the
+  // Sat+Sun toggles flip on, then 'Every day' to clear, then pin the window
+  // to TODAY's weekday — which must persist into prefs AND keep the window
+  // active for the assertions below.
   const todayDay = new Date().getDay();
+  await js(`(() => { const el = document.querySelector('[data-testid="night-mode-days-preset"]'); if (!el) return false; el.value = 'weekends'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor('Weekends preset flips Sat+Sun on', `(() => { const d = document.querySelectorAll('[data-testid="night-mode-day"]'); return d.length === 7 && document.querySelector('[data-testid="night-mode-day"][data-day="0"]').getAttribute('data-on') === '1' && document.querySelector('[data-testid="night-mode-day"][data-day="6"]').getAttribute('data-on') === '1' && document.querySelector('[data-testid="night-mode-day"][data-day="1"]').getAttribute('data-on') === '0'; })()`, 6000);
+  ok('night-mode Weekends preset applied in one click');
+  await js(`(() => { const el = document.querySelector('[data-testid="night-mode-days-preset"]'); if (!el) return false; el.value = 'every'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor('Every-day preset clears the weekday restriction', `(() => { const d = [...document.querySelectorAll('[data-testid="night-mode-day"]')]; return d.length === 7 && d.every((b) => b.getAttribute('data-on') === '0') && /every day/.test(document.querySelector('[data-testid="night-mode-days"]').textContent); })()`, 6000);
+  ok('night-mode Every-day preset clears the selector');
   await js(`(() => { const b = document.querySelector('[data-testid="night-mode-day"][data-day="${todayDay}"]'); if (!b) return false; b.click(); return true; })()`);
   await waitFor('night-mode weekday selector toggles on', `(() => { const b = document.querySelector('[data-testid="night-mode-day"][data-day="${todayDay}"]'); return b && b.getAttribute('data-on') === '1'; })()`, 6000);
   await wait(150);
@@ -458,6 +466,25 @@ async function main() {
   // Park the probe so the next blocks start from a clean tray.
   await js(`window.torrentor.cancelDownload(${probeChip.id})`);
   await waitFor('probe transfer settles before the next block', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${probeChip.id}"]')].some((c) => c.getAttribute('data-status') === 'downloading')`, 10000);
+  // Overlap warning: with night mode ACTIVE (override ON, 100 KB/s), arm a
+  // second, TIGHTER schedule-only plan (40 KB/s, window = now ±2h so it is
+  // active) through the tray-header plan switcher. Both windows are live at
+  // once with different caps — the tray must surface the conflict and name
+  // the tighter plan as the winner.
+  const hm3 = (ms) => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  await js(`window.torrentor.saveQueuePlan('overlap-probe', {}, {}, ${JSON.stringify({ from: hm3(Date.now() - 2 * 3600e3), to: hm3(Date.now() + 2 * 3600e3), bytesPerSec: 40960 })})`);
+  await waitFor('saved overlap plan appears in the tray-header switcher', `(() => { const sel = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch"]'); return sel && [...sel.options].some((o) => o.value === 'overlap-probe') ? true : null; })()`, 6000);
+  await js(`(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch"]'); if (!el) return false; el.value = 'overlap-probe'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  const overlapRow = await waitFor('tray warns the plan window and night mode overlap', `(() => { const o = document.querySelector('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]'); return o && o.getAttribute('data-plan-cap') === '40960' && o.getAttribute('data-night-cap') === '102400' && o.getAttribute('data-wins') === 'plan' && o.textContent.includes('wins over night') ? { wins: o.getAttribute('data-wins'), text: o.textContent.split(String.fromCharCode(10)).join(' ').trim() } : null; })()`, 8000);
+  if (!overlapRow) throw new Error('cap-overlap warning did not render');
+  ok('plan window + night mode overlap is surfaced in the tray', overlapRow.text);
+  await js(`(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch"]'); if (!el) return false; el.value = '__clear'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor('clearing the applied plan dismisses the overlap warning', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]')`, 8000);
+  ok('overlap warning clears with the applied plan');
+  await js(`window.torrentor.deleteQueuePlan('overlap-probe')`);
   // Turn it off again so the rest of the playtest runs unpaced.
   await click('[data-testid="open-settings"]');
   await waitFor('settings reopened for the night-mode off', `!!document.querySelector('[data-testid="st-library"]')`);
@@ -624,8 +651,16 @@ async function main() {
     6000
   );
   if (!schedEditor) throw new Error('schedule editor did not open with defaults');
-  // Restrict this plan's window to TODAY's weekday — the selector must ride
-  // along into the saved plan record ({ entries, schedule: { days } }).
+  // The plan editor has the same one-click PRESETS. Pick 'Weekdays' (Mon–Fri
+  // light up), then 'Every day' to clear, then pin this plan's window to
+  // TODAY's weekday — which must ride along into the saved plan record
+  // ({ entries, schedule: { days } }).
+  await js(`(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-days-preset"]'); if (!el) return false; el.value = 'weekdays'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor('plan Weekdays preset flips Mon–Fri on', `(() => { const ds = ['1','2','3','4','5']; return ds.every((d) => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-day"][data-day="' + d + '"]'); return b && b.getAttribute('data-on') === '1'; }) && document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-day"][data-day="0"]').getAttribute('data-on') === '0'; })()`, 6000);
+  ok('plan Weekdays preset applied in one click');
+  await js(`(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-days-preset"]'); if (!el) return false; el.value = 'every'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await waitFor('plan Every-day preset clears the weekday restriction', `(() => { const d = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-day"]')]; return d.length === 7 && d.every((b) => b.getAttribute('data-on') === '0') && /every day/.test(document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-days"]').textContent); })()`, 6000);
+  ok('plan Every-day preset clears the selector');
   await js(`(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-day"][data-day="${todayDay}"]'); if (!b) return false; b.click(); return true; })()`);
   await waitFor('plan window weekday selector toggles on', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-day"][data-day="${todayDay}"]'); return b && b.getAttribute('data-on') === '1'; })()`, 6000);
   await setText('[data-testid="download-tray"] [data-testid="dl-plan-name"]', 'night-cap');

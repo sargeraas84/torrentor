@@ -573,6 +573,7 @@ function registerIpc() {
     const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
     plans[key] = { entries: downloads.planEntries(patch || {}, folderPatch || {}), schedule: normalizeSchedule(schedule) };
     storage.replacePrefs('queuePlans', plans);
+    broadcastDownloads('plan', null); // any source (UI or IPC) refreshes the tray switcher list
     return plans;
   });
 
@@ -606,8 +607,8 @@ function registerIpc() {
     if (downloads.activePlanNameOf() === key) {
       downloads.clearActivePlan();
       storage.updatePrefs({ appliedQueuePlan: null });
-      broadcastDownloads('plan', null);
     }
+    broadcastDownloads('plan', null); // keep the tray switcher fresh from any source
     return plans;
   });
 

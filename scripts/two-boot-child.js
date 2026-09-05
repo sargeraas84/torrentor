@@ -428,6 +428,14 @@ async function phaseNightStart(win) {
   const nightSaved = await js(`window.torrentor.setPrefs({ nightMode: { from: ${JSON.stringify(from)}, to: ${JSON.stringify(to)}, bytesPerSec: 102400, days: [${today}] } })`);
   const nmPref = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.nightMode) || null)`);
   if (!nmPref || !nmPref.days || nmPref.days.join(',') !== String(today)) throw new Error(`night-mode weekday selector not saved: ${JSON.stringify(nmPref)}`);
+  // The tray pill's SESSION override must NOT survive the relaunch: force
+  // night mode OFF right before quitting (the window is active right now,
+  // so this flips the effective state to inactive), then boot #2 must come
+  // back following the clock window again — override reset to null and the
+  // window active because it still brackets now.
+  const overOff = await js(`window.torrentor.setNightOverride(false)`);
+  if (!overOff || overOff.override !== false || overOff.windowActive) throw new Error(`boot#1 night override did not force off: ${JSON.stringify(overOff)}`);
+  console.log('NIGHT_BOOT1_OVERRIDE_OFF override=false windowActive=false');
   // Give the persisted prefs a beat to flush before quitting mid-flight.
   await new Promise((r) => setTimeout(r, 700));
   console.log(`NIGHT_BOOT1_ARMED window=${from}-${to} cap=40960 active=true`);
@@ -456,6 +464,12 @@ async function phaseNightVerify(win) {
   if (!nmPref2 || !nmPref2.days || nmPref2.days.join(',') !== String(today)) throw new Error(`boot#2 night-mode weekday selector lost: ${JSON.stringify(nmPref2)}`);
   const nmLive = await js(`window.torrentor.getGlobalSchedule()`);
   if (!nmLive || !nmLive.windowActive || !nmLive.schedule || !nmLive.schedule.days) throw new Error(`boot#2 night mode not live with weekdays: ${JSON.stringify(nmLive)}`);
+  // The override forced off in boot #1 must be GONE: boot #2 is back to
+  // following the clock window (override null, window active again because
+  // it still brackets now). If the session override leaked into prefs, the
+  // override would still read false and the window would be inactive.
+  if (nmLive.override !== null) throw new Error(`boot#2 night override persisted across the relaunch (should reset): ${JSON.stringify(nmLive)}`);
+  console.log('NIGHT_BOOT2_OVERRIDE_RESET override=null windowActive=true');
   console.log(`NIGHT_BOOT2_PLAN_OK name=boot-night window=${info.schedule && info.schedule.from}-${info.schedule && info.schedule.to} days=[${today}] active=true`);
   // The cap must be REAL: measure an active restored transfer's byte growth
   // over ~1.6 s. At the 40 KB/s window cap that is ~64 KB; if the window

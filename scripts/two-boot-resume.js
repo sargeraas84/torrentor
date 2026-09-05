@@ -371,15 +371,18 @@ async function main() {
       const p1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env6, { TORRENTOR_RESUME_PHASE: 'night-start' }));
       check(p1.code === 0, `night boot #1 exited ${p1.code} — ${p1.err.slice(0, 200)}`);
       check(/NIGHT_BOOT1_ARMED/.test(p1.out), 'boot #1 applied the active schedule-only plan');
+      check(/NIGHT_BOOT1_OVERRIDE_OFF/.test(p1.out), 'boot #1 forced the night override off before quitting');
 
       // boot #2: the applied plan must be RE-ARMED from prefs (no manual
-      // re-apply) with its window still active, and the 40 KB/s cap must be
-      // genuinely pacing the restored transfers.
+      // re-apply) with its window still active, the SESSION OVERRIDE forced
+      // off in boot #1 must be gone (night mode follows the clock again),
+      // and the 40 KB/s cap must be genuinely pacing the restored transfers.
       const p2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env6, { TORRENTOR_RESUME_PHASE: 'night-verify' }));
       check(p2.code === 0, `night boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
       check(/NIGHT_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the armed plan with its window active');
+      check(/NIGHT_BOOT2_OVERRIDE_RESET/.test(p2.out), 'boot #2 the night override did not persist — the clock window applies again');
       check(/NIGHT_BOOT2_PACED_OK/.test(p2.out), 'boot #2 the restored window is really capping the queue');
-      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window + weekday selector auto-restored; night-mode weekdays persisted; measured pacing ≈ 40 KB/s in boot #2');
+      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window + weekday selector auto-restored; night-mode weekdays persisted; the session override reset to follow the clock; measured pacing ≈ 40 KB/s in boot #2');
     } finally {
       if (server6) server6.close();
       if (dataDir6) {
