@@ -11,7 +11,7 @@
 // fakes the IPC or the engines.
 // ---------------------------------------------------------------------
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, clipboard } = require('electron');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -449,6 +449,16 @@ async function main() {
   await waitFor('stats panel switches to this week', `(() => { const p = document.querySelector('[data-testid="dl-stats"]'); return p && p.innerText.includes('this week'); })()`, 6000);
   const weekTxt = await textOf('[data-testid="dl-stats"]');
   ok('Library tallies aggregate to the this-week window', String(weekTxt || '').replace(/\s+/g, ' ').slice(0, 70));
+  // Per-period export: the Copy CSV button snapshots the SELECTED period
+  // (still this week) into the system clipboard as a CSV table.
+  await click('[data-testid="dl-stats-copy"]');
+  await waitFor('copy button confirms', `(() => { const b = document.querySelector('[data-testid="dl-stats-copy"]'); return b && b.textContent.includes('Copied'); })()`, 6000);
+  await wait(120);
+  const csv = clipboard.readText();
+  if (!csv || !csv.includes('Source,Files,Bytes')) throw new Error('Clipboard does not hold the stats CSV header');
+  if (!csv.includes('Demo')) throw new Error('Clipboard CSV missing the Demo source row');
+  if (!csv.includes('Total,')) throw new Error('Clipboard CSV missing the Total row');
+  ok('per-period Copy CSV exports the stats table to the clipboard', csv.replace(/\s+/g, ' ').trim().slice(0, 70));
   await click('[data-testid="tab-search"]');
   // Close the picker (its overlay sits above the tray), then clear.
   await click('[data-testid="files-modal"] button[aria-label="Close"]');

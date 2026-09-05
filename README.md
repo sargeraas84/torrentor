@@ -31,7 +31,7 @@ Every outbound request runs in the main process and honors your **VPN/proxy rout
 | 🔀 Smart merge | Results are deduped by infohash (duplicates from different sources collapse into one card with an *"also on …"* badge); a watchdog guarantees no engine can hang a search |
 | 🗂 Rich cards | Category, size, seeders/leechers/downloads, age, infohash preview, source badges, **Demo** labeling on synthetic entries; Archive items carry **creator — year** and a poster |
 | 🧲 Magnet actions | Copy magnet · Open in torrent client (OS hand-off) · Copy `.torrent` URL · Download `.torrent` · Open source page — all scheme-validated in main |
-| ⬇️ Direct download | Archive items open an **in-app file picker** and stream the chosen file to disk; Ubuntu/Arch official ISOs download straight from the mirror. Hosts are allowlisted, every redirect hop re-validated, progress lives in a downloads tray — no torrent client needed for file-based sources. Downloads are **resumable**: at most two stream at once (the rest queue FIFO, **reorderable with drag-and-drop or arrows**, or **smart-ordered** — a tray toggle starts the fastest-finishing file first, using known sizes and your speed limits), an interrupted file continues from its partial via HTTP Range, a **user pause survives a restart** (it parks, never auto-resumes), the save dialog **remembers your folder** (per-source defaults too), and finished transfers offer **reveal in folder**. Tray chips say which folder rule landed each file, and the Library views show **per-source download tallies with all-time / this-week / this-month windows**. Demo cards exercise the whole flow **offline** with clearly-labeled sample files |
+| ⬇️ Direct download | Archive items open an **in-app file picker** and stream the chosen file to disk; Ubuntu/Arch official ISOs download straight from the mirror. Hosts are allowlisted, every redirect hop re-validated, progress lives in a downloads tray — no torrent client needed for file-based sources. Downloads are **resumable**: at most two stream at once (the rest queue FIFO, **reorderable with drag-and-drop or arrows**, or **smart-ordered** — a tray toggle starts the fastest-finishing file first, using known sizes, your speed limits, and each file's **own measured speed**, which the queue learns as streams progress and re-ranks on the fly; equal-ETA files batch by destination folder), an interrupted file continues from its partial via HTTP Range, a **user pause survives a restart** (it parks, never auto-resumes), the save dialog **remembers your folder** (per-source defaults too), and finished transfers offer **reveal in folder**. Tray chips say which folder rule landed each file, and the Library views show **per-source download tallies with all-time / this-week / this-month windows** and a **Copy CSV** button that exports the selected period to the clipboard. Demo cards exercise the whole flow **offline** with clearly-labeled sample files |
 | 🛡 VPN / proxy route | Route **every** search request through your own VPN/proxy (HTTP, SOCKS4/5, auth supported) with a one-click **Check my IP** verification (settings → VPN & privacy) |
 | 🩺 Source health | Settings → Search sources probes every real source with a known-good query and shows healthy / failing per engine — silent regressions (site redesigns that return 0 results) appear as red dots, not green chips |
 | 🔖 Local library | Favorites + recent searches stored as plain JSON in the app-data folder. No account, no cloud, no telemetry |
@@ -114,7 +114,7 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 80 pure-Node checks (no window, no network)
+npm test           # 83 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   a genuine download, quits mid-flight, relaunches, and
@@ -146,7 +146,7 @@ attached. Verify the four artifacts, then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.4.2 && git push origin v1.4.2
+git tag v1.4.3 && git push origin v1.4.3
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`

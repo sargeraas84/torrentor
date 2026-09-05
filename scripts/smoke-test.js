@@ -1127,6 +1127,88 @@ async function main() {
     dm.clearFinished();
   });
 
+  ok('scheduler: smart order batches equal-ETA files by destination folder', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const fa = path.join(dmDir, 'tie-a');
+    const fb = path.join(dmDir, 'tie-b');
+    fs.mkdirSync(fa, { recursive: true });
+    fs.mkdirSync(fb, { recursive: true });
+    // Two paced actives hold the slots; four identical 1.5 KB readme files
+    // queue with interleaved destinations. Identical size + identical rate
+    // means every ETA is exactly equal, so the folder-aware tie-break must
+    // cluster folder-a together then folder-b, not keep arrival order.
+    const a = dm.startDownload('demo:content', path.join(fa, 'a.txt'), null, { maxBytesPerSec: 51200 });
+    const b = dm.startDownload('demo:content', path.join(fb, 'b.txt'), null, { maxBytesPerSec: 51200 });
+    const x1 = dm.startDownload('demo:readme', path.join(fa, 'x1.txt'));
+    const x2 = dm.startDownload('demo:readme', path.join(fb, 'x2.txt'));
+    const x3 = dm.startDownload('demo:readme', path.join(fa, 'x3.txt'));
+    const x4 = dm.startDownload('demo:readme', path.join(fb, 'x4.txt'));
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    const q = () =>
+      dm
+        .snapshot()
+        .filter((t) => t.status === 'queued' && t.filePath.startsWith(dmDir))
+        .map((t) => t.filePath);
+    assert.deepStrictEqual(
+      q(),
+      [path.join(fa, 'x1.txt'), path.join(fa, 'x3.txt'), path.join(fb, 'x2.txt'), path.join(fb, 'x4.txt')],
+      'equal-ETA files cluster by destination folder, arrival within folder'
+    );
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
+    fs.rmSync(fa, { recursive: true, force: true });
+    fs.rmSync(fb, { recursive: true, force: true });
+  });
+
+  ok('scheduler: restored queue ranks by learned per-file speed (rateBps)', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `learn-${n}.txt`);
+    // Occupy both slots with paced actives so restored records queue.
+    const a = dm.startDownload('demo:content', mk('a'), null, { maxBytesPerSec: 51200 });
+    const b = dm.startDownload('demo:content', mk('b'), null, { maxBytesPerSec: 51200 });
+    // The same 1.5 KB file restored twice: identical size, so its rank is
+    // decided purely by the per-file speed each transfer measured before
+    // quitting (rateBps, persisted with the resume record).
+    dm.restorePending(
+      [
+        { url: 'demo:readme', filePath: mk('slow'), maxBytesPerSec: 0, rateBps: 60, folderRule: '' },
+        { url: 'demo:readme', filePath: mk('fast'), maxBytesPerSec: 0, rateBps: 120000, folderRule: '' },
+      ],
+      () => {}
+    );
+    // Two more paced actives + two equal-speed restores (the control: ties
+    // among equal learned speeds keep arrival order).
+    const c = dm.startDownload('demo:content', mk('c'), null, { maxBytesPerSec: 51200 });
+    const d = dm.startDownload('demo:content', mk('d'), null, { maxBytesPerSec: 51200 });
+    dm.restorePending(
+      [
+        { url: 'demo:readme', filePath: mk('f1'), maxBytesPerSec: 0, rateBps: 60000, folderRule: '' },
+        { url: 'demo:readme', filePath: mk('f2'), maxBytesPerSec: 0, rateBps: 60000, folderRule: '' },
+      ],
+      () => {}
+    );
+    const q = () =>
+      dm
+        .snapshot()
+        .filter((t) => t.status === 'queued' && t.filePath.startsWith(dmDir))
+        .map((t) => t.filePath);
+    // fast ≈ 0.005 s, f1/f2 ≈ 0.009 s, slow ≈ 9.5 s, paced c/d ≈ 15 s.
+    assert.deepStrictEqual(
+      q(),
+      [mk('fast'), mk('f1'), mk('f2'), mk('slow'), mk('c'), mk('d')],
+      'learned per-file speed outranks arrival; equal speeds stay stable'
+    );
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);
@@ -1355,6 +1437,20 @@ async function main() {
     assert.strictEqual(seeded['demo-curated'].events.length, 0, 'out-of-retention events pruned on seed');
     assert.strictEqual(seeded['demo-curated'].count, 1, 'lifetime counters survive pruning');
     dm.setStats({});
+  });
+
+  ok('dl-stats: statsCsv renders the panel table as copyable text', () => {
+    const { statsCsv } = require('../lib/dl-stats');
+    const csv = statsCsv([
+      { source: 'Internet Archive', count: 3, bytes: 3000 },
+      { source: 'Odd, "source"', count: 1, bytes: 7 },
+    ]);
+    assert.strictEqual(csv.split('\n')[0], 'Source,Files,Bytes', 'header row');
+    assert.ok(csv.includes('Internet Archive,3,3000'), 'plain name unquoted');
+    assert.ok(csv.includes('"Odd, ""source""",1,7'), 'commas/quotes escaped');
+    assert.ok(csv.endsWith('Total,4,3007\n'), 'total row appended');
+    assert.strictEqual(statsCsv([]), 'Source,Files,Bytes\n', 'empty rows → header only');
+    assert.strictEqual(statsCsv(null), 'Source,Files,Bytes\n', 'null safe');
   });
 
   ok('download stats: recordStats tallies per source and round-trips', async () => {

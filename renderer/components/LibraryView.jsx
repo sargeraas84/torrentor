@@ -3,7 +3,7 @@ const React = require('react');
 const { useState } = require('react');
 const { I, CatGlyph, CATEGORY_META } = require('./icons');
 const fmt = require('../../lib/format');
-const { statsForPeriod } = require('../../lib/dl-stats');
+const { statsForPeriod, statsCsv } = require('../../lib/dl-stats');
 
 function FavoritesView({ favorites, onFavToggle }) {
   if (!favorites.length) {
@@ -177,6 +177,7 @@ function Empty({ icon, hint, testid }) {
  */
 function DownloadStatsPanel({ stats, engines }) {
   const [period, setPeriod] = useState('all'); // 'all' | 'week' | 'month'
+  const [copied, setCopied] = useState(false);
   const aggregated = statsForPeriod(stats || {}, period);
   const rows = Object.entries(aggregated).filter(([, v]) => v && (v.count > 0 || v.bytes > 0));
   const lifetimeVisible = stats && typeof stats === 'object' && Object.keys(stats).length > 0;
@@ -223,6 +224,39 @@ function DownloadStatsPanel({ stats, engines }) {
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          data-testid="dl-stats-copy"
+          className="app-nodrag tooltip"
+          data-tip="Copy this table as CSV"
+          disabled={!sorted.length}
+          style={{
+            marginLeft: 4,
+            textTransform: 'none',
+            letterSpacing: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '2px 8px',
+            borderRadius: 99,
+            fontSize: 10,
+            fontWeight: 600,
+            background: copied ? 'rgba(45,212,191,0.12)' : 'transparent',
+            border: copied ? '1px solid #2dd4bf55' : '1px solid #22314b',
+            color: copied ? '#6ee7d8' : '#8494ab',
+            cursor: sorted.length ? 'pointer' : 'not-allowed',
+            opacity: sorted.length ? 1 : 0.5,
+          }}
+          onClick={() => {
+            if (!sorted.length || !window.torrentor || !window.torrentor.copy) return;
+            window.torrentor.copy(statsCsv(sorted.map(([id, v]) => ({ source: nameOf(id), count: v.count || 0, bytes: v.bytes || 0 }))));
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1400);
+          }}
+        >
+          <I.copy size={11} />
+          {copied ? 'Copied ✓' : 'Copy CSV'}
+        </button>
       </div>
       {sorted.length === 0 ? (
         <div style={{ color: '#5f7189', fontSize: 12, padding: '6px 2px 2px' }}>
