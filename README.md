@@ -141,7 +141,7 @@ attached. Verify the four artifacts, then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.4.0 && git push origin v1.4.0
+git tag v1.4.1 && git push origin v1.4.1
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`
