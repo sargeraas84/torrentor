@@ -150,7 +150,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -177,15 +177,44 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         pointerEvents: 'none',
       }}
     >
+      <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+        <button
+          type="button"
+          data-testid="dl-smart-order"
+          data-on={smartOrder ? '1' : '0'}
+          className="tooltip"
+          data-tip={smartOrder ? 'Smart order on — queue starts the fastest-finishing file first (drag/arrows disabled while on)' : 'Smart order off — files start in queue order (drag to reorder)'}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            height: 20,
+            padding: '0 8px',
+            borderRadius: 99,
+            fontSize: 10,
+            fontWeight: 650,
+            cursor: 'pointer',
+            background: smartOrder ? 'rgba(34,211,238,0.12)' : 'transparent',
+            border: smartOrder ? '1px solid #22d3ee55' : '1px solid #22314b',
+            color: smartOrder ? '#7ce7f7' : '#8494ab',
+            whiteSpace: 'nowrap',
+          }}
+          onClick={() => onSmartOrder && onSmartOrder(!smartOrder)}
+        >
+          <I.gauge size={11} />
+          {smartOrder ? 'Smart order on' : 'Smart order off'}
+        </button>
+      </div>
       {running.map((d) => {
         const queued = d.status === 'queued';
         const paused = d.status === 'paused';
         const pct = !queued && !paused && d.total ? Math.min(100, (d.received / d.total) * 100) : null;
         const folderNote = d.dir && !queued ? d.dir + (d.folderRule ? ` — ${d.folderRule}` : '') : '';
-        // Drag-and-drop reorder only applies to queued chips: the dragged
-        // chip dims, the hovered sibling highlights, and a drop splices the
-        // dragged transfer into that sibling's queue position.
-        const dndProps = queued
+        // Drag-and-drop reorder only applies to queued chips (and only when
+        // smart order is off — it would instantly re-sort any manual move):
+        // the dragged chip dims, the hovered sibling highlights, and a drop
+        // splices the dragged transfer into that sibling's queue position.
+        const dndProps = queued && !smartOrder
           ? {
               draggable: true,
               onDragStart: (e) => {
@@ -223,7 +252,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               ...chip,
               ...(dragId === d.id ? { opacity: 0.45 } : {}),
               ...(queued && dropId === d.id ? { borderColor: '#22d3ee88' } : {}),
-              ...(queued && queuedItems.length > 1 ? { cursor: 'grab' } : {}),
+              ...(queued && !smartOrder && queuedItems.length > 1 ? { cursor: 'grab' } : {}),
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -244,7 +273,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                       : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
                 </div>
               </div>
-              {queued && (
+              {queued && !smartOrder && (
                 <>
                   <button
                     type="button"

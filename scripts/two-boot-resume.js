@@ -22,6 +22,14 @@
 //     activity — a user pause is never auto-resumed) and the per-source
 //     folder rule survived.
 //
+// A third scenario proves PER-TRANSFER LIMITS + QUEUE ORDER survive:
+//   boot #1 (phase 'order-start')  — four genuine downloads (two active,
+//     two queued), per-transfer speed limits on an active and a queued
+//     file, a drag-reorder of the queue, then quit mid-flight.
+//   boot #2 (phase 'order-verify') — relaunches and asserts the queue
+//     came back in the reordered position with every limit intact, then
+//     that all four transfers completed to the exact full size.
+//
 // Both boots run the unmodified main.js + renderer over the real IPC
 // bridge; only the smoke-mode env (TORRENTOR_SMOKE) is set, which routes
 // the save dialog to a temp path and lets the local server host be
@@ -197,6 +205,48 @@ async function main() {
       if (dataDir2) {
         try {
           fs.rmSync(dataDir2, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
+    // ------- scenario 3: per-transfer limits + reordered queue survive -------
+    let server3 = null;
+    let dataDir3 = null;
+    try {
+      const payload3 = makePayload();
+      server3 = await serveSlow(payload3, [], null);
+      const { port: port3 } = server3.address();
+      dataDir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-order-boot-'));
+      const base3 = `http://127.0.0.1:${port3}/`;
+      const env3 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir3,
+        TORRENTOR_RESUME_BASE: base3,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+      };
+
+      // boot #1: four genuine downloads (two active, two queued), per-
+      // transfer limits on an active and a queued file, a drag-reorder of
+      // the queue, then quit mid-flight.
+      const o1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env3, { TORRENTOR_RESUME_PHASE: 'order-start' }));
+      check(o1.code === 0, `order boot #1 exited ${o1.code} — ${o1.err.slice(0, 200)}`);
+      check(/ORDER_BOOT1_QUEUE/.test(o1.out), 'boot #1 recorded the reordered queue + per-transfer limits');
+
+      // boot #2: the queue must come back in the reordered position with
+      // every limit intact, and all four transfers must complete to the
+      // exact full size.
+      const o2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env3, { TORRENTOR_RESUME_PHASE: 'order-verify' }));
+      check(o2.code === 0, `order boot #2 exited ${o2.code} — ${o2.err.slice(0, 200)}`);
+      check(/ORDER_BOOT2_QUEUE_OK/.test(o2.out), 'boot #2 restored the queue order + per-transfer limits');
+      check(/ORDER_BOOT2_DONE/.test(o2.out), 'boot #2 completed all four resumed transfers to the full size');
+      ok('order: drag-reordered queue + per-transfer speed limits survived a relaunch', '4 transfers restored, order + limits intact, all completed');
+    } finally {
+      if (server3) server3.close();
+      if (dataDir3) {
+        try {
+          fs.rmSync(dataDir3, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }

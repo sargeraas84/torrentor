@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('torrentor', {
   // ----- direct downloads (main-process streaming; hosts allowlisted)
   getDownloads: bridge('downloads:list'),
   getDownloadStats: bridge('downloads:stats'),
+  setSmartOrder: bridge('downloads:smartOrder', (on) => ({ on })),
   clearDownloads: bridge('downloads:clear'),
   onDownloadsChanged: (cb) => subscribe('downloads:changed', cb),
   itemFiles: bridge('download:itemFiles', (sourceId, itemId) => ({ sourceId, itemId })),

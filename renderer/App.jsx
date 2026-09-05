@@ -148,6 +148,16 @@ function App() {
       /* non-fatal — panel stays hidden */
     }
   }, []);
+  const toggleSmartOrder = async () => {
+    const next = !(prefs && prefs.smartOrder);
+    try {
+      const list = await api.setSmartOrder(next);
+      setDownloads(list || []);
+      setPrefsState((p) => ({ ...p, smartOrder: next }));
+    } catch {
+      /* tray toggle stays in sync via prefs */
+    }
+  };
   const resumeAllDl = async () => {
     try {
       const list = await api.resumePausedDownloads();
@@ -655,7 +665,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} />
 
       {settingsOpen && (
         <SettingsModal

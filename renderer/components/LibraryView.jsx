@@ -1,7 +1,9 @@
 'use strict';
 const React = require('react');
+const { useState } = require('react');
 const { I, CatGlyph, CATEGORY_META } = require('./icons');
 const fmt = require('../../lib/format');
+const { statsForPeriod } = require('../../lib/dl-stats');
 
 function FavoritesView({ favorites, onFavToggle }) {
   if (!favorites.length) {
@@ -168,12 +170,17 @@ function Empty({ icon, hint, testid }) {
 
 /**
  * Lifetime per-source download tallies (count + bytes) shown above the
- * Favorites and History views. Hidden until at least one download has
- * completed. Rows are sorted by bytes so the heaviest source leads.
+ * Favorites and History views, with a period selector (all time / this
+ * week / this month) backed by the timestamped events the manager keeps
+ * per source. Hidden until at least one download has completed. Rows are
+ * sorted by bytes so the heaviest source leads.
  */
 function DownloadStatsPanel({ stats, engines }) {
-  const rows = stats && typeof stats === 'object' ? Object.entries(stats).filter(([, v]) => v && (v.count > 0 || v.bytes > 0)) : [];
-  if (!rows.length) return null;
+  const [period, setPeriod] = useState('all'); // 'all' | 'week' | 'month'
+  const aggregated = statsForPeriod(stats || {}, period);
+  const rows = Object.entries(aggregated).filter(([, v]) => v && (v.count > 0 || v.bytes > 0));
+  const lifetimeVisible = stats && typeof stats === 'object' && Object.keys(stats).length > 0;
+  if (!lifetimeVisible) return null;
   const nameOf = (id) => {
     const e = (engines || []).find((x) => x.id === id);
     if (e && e.name) return e.name;
@@ -182,31 +189,66 @@ function DownloadStatsPanel({ stats, engines }) {
   const sorted = rows.slice().sort((a, b) => (b[1].bytes || 0) - (a[1].bytes || 0));
   const totalCount = sorted.reduce((s, [, v]) => s + (v.count || 0), 0);
   const totalBytes = sorted.reduce((s, [, v]) => s + (v.bytes || 0), 0);
-  const maxBytes = Math.max(1, sorted[0][1].bytes || 0);
+  const maxBytes = sorted.length ? Math.max(1, sorted[0][1].bytes || 0) : 1;
+  const periodLabel = period === 'week' ? 'this week' : period === 'month' ? 'this month' : 'lifetime';
   return (
     <div data-testid="dl-stats" style={{ marginBottom: 12, padding: '12px 14px', background: 'rgba(11,19,34,0.75)', border: '1px solid #16253d', borderRadius: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#5b6b84', fontSize: 10.5, letterSpacing: 1.1, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>
         <I.download size={12} /> Downloads by source
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {sorted.map(([id, v]) => (
-          <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-            <span style={{ width: 120, flexShrink: 0, color: '#cfe3f7', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={nameOf(id)}>
-              {nameOf(id)}
-            </span>
-            <div style={{ flex: 1, height: 5, borderRadius: 99, background: '#16253d', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.max(2, ((v.bytes || 0) / maxBytes) * 100)}%`, height: '100%', borderRadius: 99, background: 'linear-gradient(90deg,#22d3ee,#2dd4bf)' }} />
-            </div>
-            <span style={{ width: 74, flexShrink: 0, textAlign: 'right', color: '#8494ab', fontSize: 11 }}>
-              {v.count} file{v.count === 1 ? '' : 's'}
-            </span>
-            <span style={{ width: 70, flexShrink: 0, textAlign: 'right', color: '#b7c7dd', fontSize: 11.5, fontWeight: 600 }}>{fmt.formatBytes(v.bytes)}</span>
-          </div>
+        <div style={{ flex: 1 }} />
+        {[
+          ['all', 'All time'],
+          ['week', 'This week'],
+          ['month', 'This month'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            data-testid={`dl-stats-period-${id}`}
+            className="app-nodrag"
+            style={{
+              textTransform: 'none',
+              letterSpacing: 0,
+              padding: '2px 8px',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: period === id ? 650 : 500,
+              background: period === id ? 'rgba(34,211,238,0.12)' : 'transparent',
+              border: period === id ? '1px solid #22d3ee55' : '1px solid #22314b',
+              color: period === id ? '#7ce7f7' : '#8494ab',
+              cursor: 'pointer',
+            }}
+            onClick={() => setPeriod(id)}
+          >
+            {label}
+          </button>
         ))}
       </div>
+      {sorted.length === 0 ? (
+        <div style={{ color: '#5f7189', fontSize: 12, padding: '6px 2px 2px' }}>
+          No downloads {periodLabel === 'lifetime' ? 'yet' : `in ${periodLabel}`}.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {sorted.map(([id, v]) => (
+            <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+              <span style={{ width: 120, flexShrink: 0, color: '#cfe3f7', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={nameOf(id)}>
+                {nameOf(id)}
+              </span>
+              <div style={{ flex: 1, height: 5, borderRadius: 99, background: '#16253d', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(2, ((v.bytes || 0) / maxBytes) * 100)}%`, height: '100%', borderRadius: 99, background: 'linear-gradient(90deg,#22d3ee,#2dd4bf)' }} />
+              </div>
+              <span style={{ width: 74, flexShrink: 0, textAlign: 'right', color: '#8494ab', fontSize: 11 }}>
+                {v.count} file{v.count === 1 ? '' : 's'}
+              </span>
+              <span style={{ width: 70, flexShrink: 0, textAlign: 'right', color: '#b7c7dd', fontSize: 11.5, fontWeight: 600 }}>{fmt.formatBytes(v.bytes)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ marginTop: 9, paddingTop: 8, borderTop: '1px solid #16253d', display: 'flex', justifyContent: 'space-between', color: '#8494ab', fontSize: 11.5 }}>
         <span>Total: {totalCount} file{totalCount === 1 ? '' : 's'} · {fmt.formatBytes(totalBytes)}</span>
-        <span style={{ color: '#5b6b84' }}>lifetime</span>
+        <span style={{ color: '#5b6b84' }}>{periodLabel}</span>
       </div>
     </div>
   );

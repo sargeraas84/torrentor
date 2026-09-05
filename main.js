@@ -80,6 +80,8 @@ async function bootstrap() {
   downloads.setDefaultAllowHosts(downloadAllowHosts());
   // Lifetime per-source download tallies for the Library views.
   downloads.setStats(storage.getStats() || {});
+  // Bandwidth-aware queue scheduling (tray toggle, persisted in prefs).
+  downloads.setSmartOrder(!!storage.getPrefs().smartOrder);
 
   // Auto-resume interrupted downloads: transfers that were in flight when
   // the app last quit were persisted (url + approved destination). They
@@ -477,10 +479,20 @@ function registerIpc() {
 
   handle('downloads:list', () => downloads.snapshot());
 
-  // Lifetime per-source download tallies (count + bytes per engine id) for
-  // the Library views. Live from the manager, which main seeded from
-  // storage at boot and persists on every download transition.
+  // Lifetime per-source download tallies (count + bytes + timestamped
+  // events per engine id) for the Library views. Live from the manager,
+  // which main seeded from storage at boot and persists on every download
+  // transition.
   handle('downloads:stats', () => downloads.statsSnapshot());
+
+  // Bandwidth-aware queue scheduling: re-sorts the waiting queue by
+  // estimated finish time (smallest remaining first). Persisted in prefs
+  // so the setting survives a relaunch.
+  handle('downloads:smartOrder', ({ on }) => {
+    downloads.setSmartOrder(!!on);
+    storage.updatePrefs({ smartOrder: !!on });
+    return downloads.snapshot();
+  });
 
   handle('downloads:clear', () => {
     downloads.clearFinished();

@@ -426,6 +426,13 @@ async function main() {
       return ids.length === 2 && ids[0] === ${orderBefore[1]} && ids[1] === ${orderBefore[0]};
     })()`, 6000);
   ok('drag-and-drop reorders the start queue', `queued ${orderBefore.join(', ')} → ${orderBefore[1]}, ${orderBefore[0]}`);
+  // Smart order toggle: flips the bandwidth-aware queue scheduler (it
+  // re-sorts queued files by estimated finish time) through the tray.
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
+  await waitFor('smart order toggles on', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '1'`, 6000);
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
+  await waitFor('smart order toggles back off', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '0'`, 6000);
+  ok('smart order toggle flips the queue scheduler (tray)');
   // Lift every limit so the seeded batch drains fast, then confirm the
   // Library view's per-source tallies picked up all completed transfers.
   await js(`(async () => {
@@ -438,6 +445,10 @@ async function main() {
   await waitFor('downloads-by-source panel on the Library view', `(() => { const p = document.querySelector('[data-testid="dl-stats"]'); return p && p.innerText.includes('Demo'); })()`, 6000);
   const statsTxt = await textOf('[data-testid="dl-stats"]');
   ok('Library shows per-source download tallies', String(statsTxt || '').replace(/\s+/g, ' ').slice(0, 70));
+  await click('[data-testid="dl-stats-period-week"]');
+  await waitFor('stats panel switches to this week', `(() => { const p = document.querySelector('[data-testid="dl-stats"]'); return p && p.innerText.includes('this week'); })()`, 6000);
+  const weekTxt = await textOf('[data-testid="dl-stats"]');
+  ok('Library tallies aggregate to the this-week window', String(weekTxt || '').replace(/\s+/g, ' ').slice(0, 70));
   await click('[data-testid="tab-search"]');
   // Close the picker (its overlay sits above the tray), then clear.
   await click('[data-testid="files-modal"] button[aria-label="Close"]');

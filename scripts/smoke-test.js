@@ -1090,6 +1090,69 @@ async function main() {
     dm.clearFinished();
   });
 
+  ok('scheduler: smart order starts the fastest-finishing file first', async () => {
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `smart-${n}.txt`);
+    // Both demo payloads expose their exact size up front: the 1.5 KB
+    // readme queues ahead of the 768 KB content file under smart order.
+    const a = dm.startDownload('demo:content', mk('a'));
+    const b = dm.startDownload('demo:content', mk('b'));
+    const c = dm.startDownload('demo:content', mk('c'));
+    const d = dm.startDownload('demo:readme', mk('d'));
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    const q = () => dm.snapshot().filter((t) => t.status === 'queued' && t.filePath.startsWith(dmDir)).map((t) => t.id);
+    assert.deepStrictEqual(q(), [d.id, c.id], 'smallest remaining (readme) queues first');
+    // Unknown-size HTTP transfers sort AFTER known sizes, arrival order kept.
+    const e = dm.startDownload('http://127.0.0.1:9/never.bin', mk('e'));
+    const f = dm.startDownload('http://127.0.0.1:9/never2.bin', mk('f'));
+    assert.deepStrictEqual(q(), [d.id, c.id, e.id, f.id], 'unknown sizes stay behind known, FIFO among themselves');
+    // A queued transfer's limit re-sorts: a 570 B readme at 1 B/s (~570 s)
+    // drops behind a 768 KB content file at 2 KB/s (~384 s).
+    const g = dm.startDownload('demo:readme', mk('g'));
+    assert.deepStrictEqual(q(), [d.id, g.id, c.id, e.id, f.id], 'tiny files rank by size, unknowns last');
+    dm.setSpeedLimit(c.id, 2048);
+    dm.setSpeedLimit(g.id, 1);
+    assert.deepStrictEqual(q(), [d.id, c.id, g.id, e.id, f.id], 'limit change re-sorts the queue');
+    // Manual moves are overridden while smart order is on.
+    dm.moveQueuedTo(c.id, 0);
+    assert.deepStrictEqual(q(), [d.id, c.id, g.id, e.id, f.id], 'smart order re-applies after a manual move');
+    dm.setSmartOrder(false);
+    dm.moveQueuedTo(c.id, 0);
+    assert.deepStrictEqual(q(), [c.id, d.id, g.id, e.id, f.id], 'with smart order off, manual order sticks');
+    // Lift every limit so the queue drains fast (never strand a paced file).
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 8000);
+    dm.clearFinished();
+  });
+
+  ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
+    dm.clearFinished();
+    const mk = (n) => path.join(dmDir, `order-${n}.txt`);
+    const a = dm.startDownload('demo:content', mk('a'));
+    const b = dm.startDownload('demo:content', mk('b'));
+    const c = dm.startDownload('demo:readme', mk('c'));
+    const d = dm.startDownload('demo:readme', mk('d'));
+    assert.strictEqual(a.status, 'downloading');
+    assert.strictEqual(b.status, 'downloading');
+    assert.deepStrictEqual(dm.snapshot().filter((t) => t.status === 'queued' && t.filePath.startsWith(dmDir)).map((t) => t.id), [c.id, d.id]);
+    dm.moveQueuedTo(d.id, 0); // drag d above c
+    const recs = dm.resumableSnapshot().filter((r) => r.filePath.startsWith(dmDir));
+    assert.deepStrictEqual(recs.map((r) => r.filePath), [mk('a'), mk('b'), mk('d'), mk('c')], 'queued records emitted in start order (actives first)');
+    // Drain, then restore into a fresh queue: the reordered position holds.
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 8000);
+    dm.clearFinished();
+    const n = dm.restorePending(recs.map((r) => ({ ...r, maxBytesPerSec: 102400 })), () => {});
+    assert.strictEqual(n, 4);
+    const restoredQueued = dm.snapshot().filter((t) => t.status === 'queued' && t.filePath.startsWith(dmDir)).map((t) => t.filePath);
+    assert.deepStrictEqual(restoredQueued, [mk('d'), mk('c')], 'restored queue keeps the drag-reordered position');
+    // Cleanup: lift the pacing limits and drain.
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 8000);
+    dm.clearFinished();
+  });
+
   ok('scheduler: per-download speed limit applies live and survives retry', async () => {
     dm.clearFinished();
     const t = dm.startDownload('demo:content', path.join(dmDir, 'limit-demo.txt'));
@@ -1270,6 +1333,30 @@ async function main() {
     dm.clearFinished();
   });
 
+  ok('download stats: period aggregation (week/month) from timestamped events', () => {
+    const tally = {
+      'archive-org': {
+        count: 3,
+        bytes: 3000,
+        events: [
+          { ts: Date.now() - 2 * 24 * 3600 * 1000, bytes: 1000 },
+          { ts: Date.now() - 10 * 24 * 3600 * 1000, bytes: 1000 },
+          { ts: Date.now() - 60 * 24 * 3600 * 1000, bytes: 1000 },
+        ],
+      },
+      'demo-curated': { count: 1, bytes: 500, events: [{ ts: Date.now() - 200 * 24 * 3600 * 1000, bytes: 500 }] },
+    };
+    assert.deepStrictEqual(dm.statsForPeriod(tally, 'all')['archive-org'], { count: 3, bytes: 3000 }, 'all = lifetime counters');
+    assert.deepStrictEqual(dm.statsForPeriod(tally, 'week')['archive-org'], { count: 1, bytes: 1000 }, 'week = last 7 days only');
+    assert.strictEqual(dm.statsForPeriod(tally, 'week')['demo-curated'].count, 0, '200-day-old event not in the week window');
+    assert.deepStrictEqual(dm.statsForPeriod(tally, 'month')['archive-org'], { count: 2, bytes: 2000 }, 'month = last 30 days only');
+    // Retention: seeding prunes out-of-window events but keeps the lifetime counters.
+    const seeded = dm.setStats(tally);
+    assert.strictEqual(seeded['demo-curated'].events.length, 0, 'out-of-retention events pruned on seed');
+    assert.strictEqual(seeded['demo-curated'].count, 1, 'lifetime counters survive pruning');
+    dm.setStats({});
+  });
+
   ok('download stats: recordStats tallies per source and round-trips', async () => {
     dm.setStats({});
     dm.recordStats('https://archive.org/download/foo/bar.mp4', 1500);
@@ -1311,11 +1398,11 @@ async function main() {
     assert.deepStrictEqual(s1.getTransfers(), []);
     const recs = [{ url: 'demo:content', filePath: '/tmp/x.bin', demo: true, maxBytesPerSec: 512 * 1024 }];
     s1.setTransfers(recs);
-    s1.setStats({ 'archive-org': { count: 3, bytes: 4096 }, other: { count: 1, bytes: 7 } });
+    s1.setStats({ 'archive-org': { count: 3, bytes: 4096, events: [{ ts: 123, bytes: 4096 }] }, other: { count: 1, bytes: 7, events: [] } });
     s1.flush();
     const s2 = new Storage(stDir);
     assert.deepStrictEqual(s2.getTransfers(), recs, 'records survive a storage reload');
-    assert.deepStrictEqual(s2.getStats(), { 'archive-org': { count: 3, bytes: 4096 }, other: { count: 1, bytes: 7 } }, 'stats survive a storage reload');
+    assert.deepStrictEqual(s2.getStats(), { 'archive-org': { count: 3, bytes: 4096, events: [{ ts: 123, bytes: 4096 }] }, other: { count: 1, bytes: 7, events: [] } }, 'stats (count/bytes/events) survive a storage reload');
     assert.deepStrictEqual(s2.getStats().demo, undefined, 'no phantom engine buckets');
     await new Promise((r) => setTimeout(r, 320)); // let debounced writes settle
     fs.rmSync(stDir, { recursive: true, force: true });

@@ -18,6 +18,15 @@
 // Phase 'pause-verify' (boot #2): asserts the transfer came back PARKED
 //   (status 'paused', .part intact, no auto-resume), and the per-source
 //   folder rule is still in prefs.
+//
+// Order scenario (per-transfer limits + a drag-reordered queue must
+// survive a restart):
+// Phase 'order-start'  (boot #1): starts four genuine downloads (two
+//   active, two queued), sets per-transfer speed limits on an active and
+//   a queued file, drag-reorders the queue, then quits.
+// Phase 'order-verify' (boot #2): asserts the queue came back in the
+//   reordered position with every limit intact, then that all four
+//   transfers completed to the exact full size.
 // ---------------------------------------------------------------------
 
 const { app, BrowserWindow } = require('electron');
@@ -27,6 +36,7 @@ const fs = require('fs');
 
 const PHASE = process.env.TORRENTOR_RESUME_PHASE || '';
 const DL_URL = process.env.TORRENTOR_RESUME_URL || '';
+const BASE = process.env.TORRENTOR_RESUME_BASE || '';
 const EXPECTED = Number(process.env.TORRENTOR_RESUME_EXPECTED_BYTES) || 0;
 const PAUSE_DIR = process.env.TORRENTOR_PAUSE_DIR || '';
 
@@ -89,6 +99,76 @@ async function phaseStart(win) {
   console.log('RESUME_BOOT1_QUITTING');
   setTimeout(() => app.exit(0), 4000); // hard stop if the quit stalls
   app.quit();
+}
+
+async function phaseOrderStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  const urls = [0, 1, 2, 3].map((i) => `${BASE}seed-${i}.bin`);
+  const results = [];
+  for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
+  const ts = results.map((r) => r && r.transfer);
+  if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('seed transfers did not start cleanly');
+  const [a, b, c, d] = ts;
+  // Per-transfer limits: a (active) at 128 KB/s, b (active) at 256 KB/s,
+  // c (queued) at 256 KB/s — each must survive the restart on its entry.
+  await js(`Promise.all([window.torrentor.setDownloadLimit(${a.id}, 131072), window.torrentor.setDownloadLimit(${b.id}, 262144), window.torrentor.setDownloadLimit(${c.id}, 262144)])`);
+  // Drag-reorder the queue: d jumps above c (the tray's moveTo path).
+  await js(`window.torrentor.moveDownloadTo(${d.id}, 0)`);
+  const snap = await js(`window.torrentor.getDownloads()`);
+  const queued = snap.filter((t) => t.status === 'queued').sort((x, y) => x.queuePos - y.queuePos);
+  if (queued.length !== 2 || queued[0].id !== d.id || queued[1].id !== c.id) throw new Error(`queue order wrong: ${JSON.stringify(queued.map((t) => [t.id, t.queuePos]))}`);
+  if (snap.find((t) => t.id === c.id).maxBytesPerSec !== 262144) throw new Error('queued limit not applied');
+  console.log('ORDER_BOOT1_QUEUE order=seed-3,seed-2 limits=131072,262144,262144');
+  console.log('ORDER_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phaseOrderVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  const state = await waitFor(
+    'boot#2 restored queue order + limits',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        if (mine.length < 4) return null;
+        const queued = mine.filter((t) => t.status === 'queued').sort((x, y) => x.queuePos - y.queuePos);
+        if (queued.length < 2) return null;
+        const byName = Object.fromEntries(mine.map((t) => [t.url.split('/').pop(), t]));
+        if (!byName['seed-0.bin'] || !byName['seed-2.bin']) return null;
+        return {
+          queuedOrder: queued.slice(0, 2).map((t) => t.url.split('/').pop()),
+          aLimit: byName['seed-0.bin'].maxBytesPerSec,
+          bLimit: byName['seed-1.bin'].maxBytesPerSec,
+          cLimit: byName['seed-2.bin'].maxBytesPerSec,
+          files: mine.map((t) => t.filePath),
+        };
+      })()`),
+    25000
+  );
+  if (state.queuedOrder[0] !== 'seed-3.bin' || state.queuedOrder[1] !== 'seed-2.bin') throw new Error(`queue order lost: ${JSON.stringify(state.queuedOrder)}`);
+  if (state.aLimit !== 131072 || state.bLimit !== 262144 || state.cLimit !== 262144) throw new Error(`limits lost: a=${state.aLimit} b=${state.bLimit} c=${state.cLimit}`);
+  console.log('ORDER_BOOT2_QUEUE_OK order=seed-3,seed-2 limits=a:131072,b:262144,c:262144');
+  await waitFor(
+    'boot#2 all four resumed transfers complete',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        return mine.length === 4 && mine.every((t) => t.status === 'done') ? mine : null;
+      })()`),
+    120000
+  );
+  const sizes = state.files.map((fp) => (fs.existsSync(fp) ? fs.statSync(fp).size : -1));
+  if (sizes.some((s) => s !== EXPECTED)) throw new Error(`final sizes ${JSON.stringify(sizes)} !== ${EXPECTED}`);
+  console.log('ORDER_BOOT2_DONE bytes=' + EXPECTED);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
 }
 
 async function phasePauseStart(win) {
@@ -188,6 +268,8 @@ async function main() {
     else if (PHASE === 'verify') await phaseVerify(win);
     else if (PHASE === 'pause-start') await phasePauseStart(win);
     else if (PHASE === 'pause-verify') await phasePauseVerify(win);
+    else if (PHASE === 'order-start') await phaseOrderStart(win);
+    else if (PHASE === 'order-verify') await phaseOrderVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));
