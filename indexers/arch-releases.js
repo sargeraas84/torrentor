@@ -21,6 +21,7 @@ const ENGINE = {
   kind: 'official',
   demo: false,
   probe: 'archlinux',
+  directFiles: true, // official ISO downloads straight from the mirror
 };
 
 const FEED_URL = 'https://archlinux.org/releng/releases/json/';

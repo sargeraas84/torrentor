@@ -43,6 +43,10 @@ function meta() {
     kind: e.kind,
     demo: !!e.demo,
     defaultEnabled: e.defaultEnabled !== false,
+    // Sources whose results expose direct HTTPS files (Internet Archive
+    // items, official distro ISOs, offline demo fixtures). Drives the
+    // per-source default-folder rows in Settings.
+    directFiles: !!e.directFiles,
   }));
 }
 

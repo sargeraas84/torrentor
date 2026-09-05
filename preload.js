@@ -74,10 +74,12 @@ contextBridge.exposeInMainWorld('torrentor', {
   itemFiles: bridge('download:itemFiles', (sourceId, itemId) => ({ sourceId, itemId })),
   downloadFile: bridge('download:start', (url) => ({ url })),
   retryDownload: bridge('download:retry', (id) => ({ id })),
+  pauseDownload: bridge('download:pause', (id) => ({ id })),
   cancelDownload: bridge('download:cancel', (id) => ({ id })),
   setDownloadLimit: bridge('download:limit', (id, bytesPerSec) => ({ id, bytesPerSec })),
   moveDownload: bridge('download:move', (id, dir) => ({ id, dir })),
   revealDownload: bridge('downloads:reveal', (id) => ({ id })),
+  chooseDownloadDir: bridge('downloads:chooseDir', (engineId) => ({ engineId })),
 
   // ----- window controls
   minimize: () => ipcRenderer.send('win:minimize'),

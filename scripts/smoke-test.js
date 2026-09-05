@@ -723,6 +723,21 @@ async function main() {
     assert.strictEqual(reloaded.getPrefs().proxy.enabled, true);
     assert.strictEqual(reloaded.getHistory().length, 2);
   });
+  ok('storage: per-source download folders merge and clear independently', async () => {
+    const stDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-ddirs-'));
+    const dirA = path.join(os.tmpdir(), 'torrentor-folders-a');
+    const dirB = path.join(os.tmpdir(), 'torrentor-folders-b');
+    const s = new Storage(stDir);
+    s.updatePrefs({ downloadDirs: { 'archive-org': dirA } });
+    s.updatePrefs({ downloadDirs: { 'distro-releases': dirB } });
+    assert.strictEqual(s.getPrefs().downloadDirs['archive-org'], dirA, 'first source kept');
+    assert.strictEqual(s.getPrefs().downloadDirs['distro-releases'], dirB, 'second source added without clobbering');
+    s.updatePrefs({ downloadDirs: { 'archive-org': '' } }); // clear one source
+    assert.strictEqual(s.getPrefs().downloadDirs['archive-org'], '', 'cleared source falls back to last-used');
+    assert.strictEqual(s.getPrefs().downloadDirs['distro-releases'], dirB, 'other source untouched');
+    await new Promise((r) => setTimeout(r, 320)); // let debounced writes settle
+    fs.rmSync(stDir, { recursive: true, force: true });
+  });
   store.flush();
   await new Promise((r) => setTimeout(r, 350)); // let debounced writes settle
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -1091,6 +1106,53 @@ async function main() {
     assert.ok(fs.existsSync(destA) && fs.existsSync(destB), 'restored transfers wrote their files');
     assert.ok(events.some((e) => e.endsWith(':queued')), 'restore reported queued transitions');
     dm.clearFinished();
+  });
+
+  ok('scheduler: pause parks a running transfer; manual resume continues it', async () => {
+    dm.clearFinished();
+    const dest = path.join(dmDir, 'pause-demo.txt');
+    // A 100 KB/s demo takes ~7s, so there is plenty of window to pause.
+    const t = dm.startDownload('demo:content', dest, () => {}, { maxBytesPerSec: 102400 });
+    assert.strictEqual(t.status, 'downloading');
+    const parked = dm.pauseDownload(t.id);
+    assert.ok(parked && parked.id === t.id, 'pause accepted on a running transfer');
+    return (async () => {
+      await waitFor(() => dm.getDownload(t.id) && dm.getDownload(t.id).status === 'paused', 4000);
+      const snap = dm.snapshot().find((x) => x.id === t.id);
+      assert.strictEqual(snap.status, 'paused', 'transfer parked as paused');
+      assert.strictEqual(snap.queuePos, -1, 'paused transfer is not in the start queue');
+      assert.ok(!dm.resumableSnapshot().some((r) => r.filePath === dest), 'paused transfer does NOT auto-resume on relaunch');
+      // Manual resume: lift the limit (the pause kept it at 100 KB/s) and
+      // restart — a real URL would continue its .part via HTTP Range.
+      dm.setSpeedLimit(t.id, 0);
+      const resumed = dm.retryDownload(t.id);
+      assert.ok(resumed && resumed.status === 'downloading', 'resume starts the parked transfer');
+      await waitFor(() => dm.getDownload(t.id) && dm.getDownload(t.id).status === 'done', 8000);
+      assert.ok(fs.existsSync(dest) && fs.statSync(dest).size > 0, 'resumed file written');
+      dm.clearFinished();
+    })();
+  });
+
+  ok('scheduler: removing a paused transfer deletes it (partial dropped too)', async () => {
+    dm.clearFinished();
+    const dest = path.join(dmDir, 'pause-remove.txt');
+    const t = dm.startDownload('demo:content', dest, () => {}, { maxBytesPerSec: 102400 });
+    dm.pauseDownload(t.id);
+    await waitFor(() => dm.getDownload(t.id) && dm.getDownload(t.id).status === 'paused', 4000);
+    const removed = dm.cancelDownload(t.id); // remove semantics for paused
+    assert.ok(removed && removed.id === t.id, 'paused transfer removable');
+    assert.ok(!dm.snapshot().some((x) => x.id === t.id), 'removed from the list');
+    dm.clearFinished();
+  });
+
+  ok('engineForUrl maps direct-file URLs to their engine (per-source folders)', () => {
+    assert.strictEqual(dm.engineForUrl('https://archive.org/download/x/y.mp4'), 'archive-org');
+    assert.strictEqual(dm.engineForUrl('https://releases.ubuntu.com/24.04/x.iso'), 'distro-releases');
+    assert.strictEqual(dm.engineForUrl('https://cdimage.debian.org/x/y.iso'), 'distro-releases');
+    assert.strictEqual(dm.engineForUrl('https://archive.archlinux.org/iso/x.iso'), 'arch-releases');
+    assert.strictEqual(dm.engineForUrl('demo:readme'), 'demo-curated');
+    assert.strictEqual(dm.engineForUrl('https://evil-example.org/x.iso'), null, 'unknown host → no engine');
+    assert.strictEqual(dm.engineForUrl('not a url'), null);
   });
 
   ok('storage: persisted transfers round-trip (auto-resume records)', async () => {

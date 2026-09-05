@@ -150,10 +150,13 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove }) {
-  const running = downloads.filter((d) => d.status === 'downloading' || d.status === 'queued');
-  const finished = downloads.filter((d) => d.status !== 'downloading' && d.status !== 'queued');
-  const queuedCount = running.filter((d) => d.status === 'queued').length;
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onPause }) {
+  const actives = downloads.filter((d) => d.status === 'downloading');
+  const queuedItems = downloads.filter((d) => d.status === 'queued');
+  const pausedItems = downloads.filter((d) => d.status === 'paused');
+  const running = [...actives, ...queuedItems, ...pausedItems];
+  const finished = downloads.filter((d) => d.status !== 'downloading' && d.status !== 'queued' && d.status !== 'paused');
+  const queuedCount = queuedItems.length;
   if (!downloads.length) return null;
 
   return (
@@ -174,12 +177,15 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     >
       {running.map((d) => {
         const queued = d.status === 'queued';
-        const pct = !queued && d.total ? Math.min(100, (d.received / d.total) * 100) : null;
+        const paused = d.status === 'paused';
+        const pct = !queued && !paused && d.total ? Math.min(100, (d.received / d.total) * 100) : null;
         return (
           <div key={d.id} style={chip}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {queued ? (
                 <I.clock size={13} style={{ color: '#8494ab', flexShrink: 0 }} />
+              ) : paused ? (
+                <I.pause size={13} style={{ color: '#fbbf24', flexShrink: 0 }} />
               ) : (
                 <I.download size={13} style={{ color: '#22d3ee', flexShrink: 0 }} />
               )}
@@ -188,7 +194,9 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                 <div style={{ color: '#6f8199', fontSize: 10.5, marginTop: 1 }}>
                   {queued
                     ? 'Queued — waiting for a free slot'
-                    : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
+                    : paused
+                      ? 'Paused — partial kept · resume anytime'
+                      : `${fmt.formatBytes(d.received)}${d.total ? ` / ${fmt.formatBytes(d.total)}` : ''}${pct != null ? ` (${Math.floor(pct)}%)` : ''}${d.speedBytesPerSec > 0 ? ` · ${fmt.formatBytes(d.speedBytesPerSec)}/s` : ''}${d.resumed ? ' · resumed from partial' : ''}`}
                 </div>
               </div>
               {queued && (
@@ -219,29 +227,71 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                   </button>
                 </>
               )}
-              <button
-                type="button"
-                data-testid="dl-limit"
-                className="tooltip"
-                data-limit={d.maxBytesPerSec || 0}
-                data-tip={d.maxBytesPerSec ? `Speed limit ${fmt.formatBytes(d.maxBytesPerSec)}/s — click to change` : 'Unlimited speed — click to set a limit'}
-                style={limitBtn}
-                onClick={() => onLimit && onLimit(d.id, nextPreset(d.maxBytesPerSec))}
-              >
-                {limitLabel(d.maxBytesPerSec)}
-              </button>
-              <button
-                type="button"
-                aria-label={queued ? 'Cancel queued download' : 'Cancel download'}
-                className="tooltip"
-                data-tip={queued ? 'Remove from queue' : 'Cancel — progress is kept, you can resume later'}
-                style={miniBtn}
-                onClick={() => onCancel(d.id)}
-              >
-                <I.close size={13} />
-              </button>
+              {!paused && (
+                <button
+                  type="button"
+                  data-testid="dl-limit"
+                  className="tooltip"
+                  data-limit={d.maxBytesPerSec || 0}
+                  data-tip={d.maxBytesPerSec ? `Speed limit ${fmt.formatBytes(d.maxBytesPerSec)}/s — click to change` : 'Unlimited speed — click to set a limit'}
+                  style={limitBtn}
+                  onClick={() => onLimit && onLimit(d.id, nextPreset(d.maxBytesPerSec))}
+                >
+                  {limitLabel(d.maxBytesPerSec)}
+                </button>
+              )}
+              {queued ? (
+                <button
+                  type="button"
+                  aria-label="Remove from queue"
+                  data-testid="dl-remove"
+                  className="tooltip"
+                  data-tip="Remove from queue"
+                  style={miniBtn}
+                  onClick={() => onCancel(d.id)}
+                >
+                  <I.close size={13} />
+                </button>
+              ) : paused ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Resume paused download"
+                    data-testid="dl-resume"
+                    className="tooltip"
+                    data-tip="Resume — continues from the partial file"
+                    style={miniBtn}
+                    onClick={() => onRetry && onRetry(d.id)}
+                  >
+                    <I.play size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Remove paused download"
+                    data-testid="dl-remove"
+                    className="tooltip"
+                    data-tip="Remove — deletes the partial too"
+                    style={miniBtn}
+                    onClick={() => onCancel(d.id)}
+                  >
+                    <I.close size={13} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Pause download"
+                  data-testid="dl-pause"
+                  className="tooltip"
+                  data-tip="Pause — keep partial progress and free the slot"
+                  style={miniBtn}
+                  onClick={() => onPause && onPause(d.id)}
+                >
+                  <I.pause size={13} />
+                </button>
+              )}
             </div>
-            {!queued && (
+            {!queued && !paused && (
               <div style={{ height: 3, borderRadius: 99, background: '#16253d', marginTop: 7, overflow: 'hidden' }}>
                 <div
                   style={{

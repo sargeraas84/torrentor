@@ -1,7 +1,9 @@
 # CI — static checks + the full test suite on every push and pull request.
 # actionlint catches YAML/expression mistakes before they can break a
-# release build; npm test runs the pure-Node suite (no network) so
-# regressions surface here, not on a release tag.
+# release build. npm test runs the pure-Node suite (no network); the
+# Electron IPC suite boots the real app over its actual bridge, and the
+# two-boot resume test proves interrupted downloads auto-resume across a
+# real quit + relaunch — all on the Windows runner (real window + Electron).
 name: ci
 
 on:
@@ -42,3 +44,30 @@ jobs:
 
       - name: Run the pure-Node test suite
         run: npm test
+
+  # Real-app suites: the Electron IPC checks (real engine probes over the
+  # actual preload bridge) and the two-boot auto-resume test (boots the app
+  # twice over a slow local Range server, quitting mid-download). Windows
+  # runners give Electron a real desktop session. These are heavier than
+  # the pure-Node suite, so they run in parallel on their own machine.
+  electron:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Electron IPC suite (real app over the preload bridge)
+        run: npm run test:electron
+
+      - name: Two-boot auto-resume test (real quit + relaunch)
+        run: npm run test:resume

@@ -19,6 +19,7 @@ const ENGINE = {
   tagline: 'Offline sample corpus — always works, clearly labeled. Infohashes are synthetic.',
   kind: 'demo',
   demo: true,
+  directFiles: true, // demo picker offers locally-generated sample files
 };
 
 // [title, category, sizeBytes, keywords, uploadedAtDaysAgo]

@@ -27,6 +27,7 @@ const ENGINE = {
   kind: 'official',
   demo: false,
   probe: 'big buck bunny',
+  directFiles: true, // item file picker → direct HTTPS download
 };
 
 const SEARCH_URL = 'https://archive.org/advancedsearch.php';

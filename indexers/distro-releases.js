@@ -19,6 +19,7 @@ const ENGINE = {
   kind: 'official',
   demo: false,
   probe: 'ubuntu 24.04',
+  directFiles: true, // official ISO downloads straight from the mirror
 };
 
 const CACHE_TTL_MS = 10 * 60 * 1000;

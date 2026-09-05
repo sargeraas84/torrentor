@@ -128,6 +128,19 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
     }
   };
 
+  // Per-source default download folder (direct downloads). Choosing opens
+  // the native folder dialog via main; the pref is saved through the same
+  // onSetPrefs funnel as every other setting.
+  const pickDir = async (engineId) => {
+    try {
+      const res = await window.torrentor.chooseDownloadDir(engineId);
+      if (!res || res.cancelled || !res.path) return;
+      await onSetPrefs({ downloadDirs: { [engineId]: res.path } });
+    } catch {
+      /* non-fatal: the user can retry */
+    }
+  };
+
   const enabledCount = engines.filter((e) => e.enabled).length;
 
   return (
@@ -444,6 +457,32 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                   ))}
                 </select>
               </Row>
+              <div style={{ fontWeight: 700, fontSize: 12.5, color: '#b7c7dd', marginTop: 4 }}>Per-source download folders</div>
+              <div style={{ color: '#5b6b84', fontSize: 11.5, marginBottom: 2 }}>
+                Optional default save folders for direct downloads. A source with no folder uses your last-used download folder.
+              </div>
+              {engines.filter((e) => e.directFiles).map((e) => {
+                const dir = (prefs.downloadDirs && prefs.downloadDirs[e.id]) || '';
+                return (
+                  <Row
+                    key={e.id}
+                    label={e.name}
+                    desc={dir ? dir : 'Default — follows the last-used download folder'}
+                  >
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button type="button" data-testid={`dl-folder-${e.id}`} style={ghostBtn} onClick={() => pickDir(e.id)}>
+                        <I.folder size={13} />
+                        {dir ? 'Change folder…' : 'Choose folder…'}
+                      </button>
+                      {dir && (
+                        <button type="button" data-testid={`dl-folder-clear-${e.id}`} style={ghostBtn} onClick={() => onSetPrefs({ downloadDirs: { [e.id]: '' } })}>
+                          <I.close size={13} /> Clear
+                        </button>
+                      )}
+                    </div>
+                  </Row>
+                );
+              })}
               <Row label="Search history" desc={`${historyCount} stored queries, kept only on this machine.`}>
                 <button type="button" style={ghostBtn} onClick={onClearHistory}>
                   <I.trash size={13} /> Clear history
@@ -453,10 +492,11 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                 <span style={{ color: '#8494ab', fontSize: 12.5 }}>Stored under your app data folder</span>
               </Row>
               <p style={{ color: '#5b6b84', fontSize: 11.5, marginTop: 16, lineHeight: 1.6 }}>
-                Direct downloads stream to the folder you pick and resume across restarts from their <code style={{ color: '#9db3cf' }}>.part</code>
-                file. Torrentor keeps no telemetry and makes no outbound calls other than the searches you run (through your configured route), the
-                optional IP check, and downloads you start. Query history lives in <code style={{ color: '#9db3cf' }}>prefs.json / history.json /
-                favorites.json</code> next to the app's user-data folder — delete them any time.
+                Direct downloads stream to the folder you pick (per-source or last-used) and resume across restarts from their
+                <code style={{ color: '#9db3cf' }}> .part</code> file. Torrentor keeps no telemetry and makes no outbound calls other than the
+                searches you run (through your configured route), the optional IP check, and downloads you start. Query history lives in
+                <code style={{ color: '#9db3cf' }}>prefs.json / history.json / favorites.json</code> next to the app's user-data folder — delete
+                them any time.
               </p>
             </div>
           )}

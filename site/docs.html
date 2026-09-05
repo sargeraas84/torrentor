@@ -86,7 +86,7 @@
                 <table>
                   <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
                   <tbody>
-                    <tr><td><code>npm test</code></td><td>68 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder/restore. No window, no network.</td></tr>
+                    <tr><td><code>npm test</code></td><td>72 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder/pause/restore. No window, no network.</td></tr>
                     <tr><td><code>npm run test:resume</code></td><td>3 two-boot checks — boots the real app twice on one data dir over a slow Range-capable local server: starts a genuine download, quits mid-flight, relaunches, and asserts the transfer auto-resumed from its <code>.part</code> to the exact full size.</td></tr>
                     <tr><td><code>npm run test:electron</code></td><td>8 IPC checks through the real main process — search, favorites, health round-trip.</td></tr>
                     <tr><td><code>npm run test:ui</code></td><td>35-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, sets the default speed limit and watches a <i>paced</i> demo download (tray control raised mid-flight), then streams a real Internet Archive file end-to-end.</td></tr>
@@ -182,6 +182,15 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <h2>Changelog</h2>
               <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
               <div class="card">
+                <h3 style="margin-bottom: 4px;">v1.4.1 — Pause, per-source folders, real-app CI</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-05</p>
+                <ul>
+                  <li><b>Pause instead of cancel.</b> A running transfer now has a dedicated <b>pause</b> button: the stream stops, the <code>.part</code> is kept, and the queue slot frees up for the next file — the tray parks it as <i>Paused</i> with a one-click <b>resume</b> (Range-continues from the partial). Removing a paused transfer explicitly deletes its partial.</li>
+                  <li><b>Per-source default folders.</b> Settings → Library lets you choose a default save folder per direct-file source (Internet Archive, Ubuntu/Debian, Arch, Demo) — Archive items land in your Archive folder, ISOs in your ISO folder — falling back to the shared last-used folder when unset. The chosen folder is remembered per source at save time.</li>
+                  <li><b>Real-app CI.</b> The <code>ci</code> workflow now also runs the Electron IPC suite and the two-boot auto-resume test (a genuine download quit mid-flight, then verified resumed after relaunch) on Windows runners with every push, so restart-resume regressions can’t ride a release tag.</li>
+                </ul>
+              </div>
+              <div class="card">
                 <h3 style="margin-bottom: 4px;">v1.4.0 — Direct downloads, resumable</h3>
                 <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-05</p>
                 <ul>
@@ -230,7 +239,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
                 </ul>
               </div>
-              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 68 Node checks, 8 Electron IPC checks, 3 two-boot resume checks, and a 35-step real-window playtest (which now paces a demo download and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab).</div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 72 Node checks, 8 Electron IPC checks, 3 two-boot resume checks, and a 35-step real-window playtest (which now paces a demo download and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab); the <code>ci</code> workflow also runs the Electron IPC + two-boot suites on every push.</div>
             </div>
         </div>
       </div>

@@ -83,6 +83,14 @@ function App() {
       /* tray updates via the broadcast anyway */
     }
   };
+  const pauseDl = async (id) => {
+    try {
+      const list = await api.pauseDownload(id);
+      setDownloads(list || []);
+    } catch {
+      /* tray updates via the broadcast anyway */
+    }
+  };
   const clearDl = async () => {
     try {
       const list = await api.clearDownloads();
@@ -607,7 +615,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onPause={pauseDl} />
 
       {settingsOpen && (
         <SettingsModal

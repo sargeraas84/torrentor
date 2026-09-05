@@ -507,12 +507,16 @@ function registerIpc() {
     }
 
     const label = isDemo ? downloads.demoLabel(href) : downloads.suggestedName(href);
+    // Per-source default folder (Settings → Library) wins over the shared
+    // last-used folder when the URL maps to a direct-file engine.
+    const engineId = downloads.engineForUrl(href);
     let destPath;
     if (SMOKE_MODE) {
       destPath = path.join(os.tmpdir(), `torrentor-dl-${Date.now()}-${label}`);
     } else {
       const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-      const dir = storage.getPrefs().downloadDir || undefined;
+      const dirs = (storage.getPrefs().downloadDirs || {});
+      const dir = (engineId && dirs[engineId]) || storage.getPrefs().downloadDir || undefined;
       const res = await dialog.showSaveDialog(win, {
         title: 'Save download',
         defaultPath: dir ? path.join(dir, label) : label,
@@ -520,7 +524,12 @@ function registerIpc() {
       if (res.canceled || !res.filePath) return { cancelled: true, transfer: null };
       destPath = res.filePath;
       try {
-        storage.updatePrefs({ downloadDir: path.dirname(destPath) });
+        const folder = path.dirname(destPath);
+        // Remember both: the shared last-used folder AND this source's own
+        // folder, so next time Archive files skip straight to their dir.
+        const patch = { downloadDir: folder };
+        if (engineId) patch.downloadDirs = { [engineId]: folder };
+        storage.updatePrefs(patch);
       } catch {
         /* remembering the folder is best-effort */
       }
@@ -533,11 +542,36 @@ function registerIpc() {
     return { cancelled: false, transfer };
   });
 
-  // Resume/retry a finished transfer (error or cancelled): it keeps its
-  // already-approved destination and the .part continues via Range.
+  // Resume/retry a finished or PAUSED transfer (error, cancelled, paused):
+  // it keeps its already-approved destination and the .part continues via
+  // Range. Pause frees its queue slot without dropping the transfer.
   handle('download:retry', ({ id }) => {
     downloads.retryDownload(Number(id), (entry, kind) => broadcastDownloads(kind, entry.id));
     return downloads.snapshot();
+  });
+
+  // Pause a running download: aborts the stream, keeps the .part, frees
+  // the queue slot; the entry parks as 'paused' for a manual resume.
+  handle('download:pause', ({ id }) => {
+    downloads.pauseDownload(Number(id), (entry, kind) => broadcastDownloads(kind, entry.id));
+    broadcastDownloads('paused', Number(id));
+    return downloads.snapshot();
+  });
+
+  // Native folder picker for Settings → Library per-source download folders.
+  handle('downloads:chooseDir', async ({ engineId }, event) => {
+    const id = String(engineId || '').trim();
+    if (!id) throw new Error('Choose a source first.');
+    const prefs = storage.getPrefs();
+    const startDir = (prefs.downloadDirs && prefs.downloadDirs[id]) || prefs.downloadDir || undefined;
+    const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    const res = await dialog.showOpenDialog(win, {
+      title: `Default download folder — ${id}`,
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: startDir,
+    });
+    if (res.canceled || !res.filePaths || !res.filePaths[0]) return { cancelled: true, path: null };
+    return { cancelled: false, path: res.filePaths[0] };
   });
 
   // Per-transfer speed limit (bytes/sec, 0 = unlimited). The rate is read
