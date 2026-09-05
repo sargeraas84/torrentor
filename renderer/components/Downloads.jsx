@@ -16,6 +16,8 @@ const ETA_BASIS_WORDS = {
   // limit is higher or unset) — say so instead of claiming the file chose
   // that speed.
   window: 'plan window',
+  // The Settings 'night mode' global schedule is the binding cap.
+  night: 'night mode',
   measured: 'measured',
   shared: 'live network',
   baseline: 'assumed',
@@ -174,7 +176,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -230,6 +232,9 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   // window is currently capping the whole queue.
   const appliedName = (appliedPlan && appliedPlan.name) || '';
   const appliedSchedule = (appliedPlan && appliedPlan.schedule) || null;
+  // Settings night mode (global clock-window cap) — dimmed pill when set but
+  // outside the window, bright 'throttling now' while inside.
+  const nightSched = (nightMode && nightMode.schedule) || null;
   // What-if preview plumbing: hypothetical limits go to the manager (which
   // ranks exactly as Apply would) and come back as an ordered row list.
   const fetchPreview = async (patch) => {
@@ -484,6 +489,37 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               {appliedName && planNames.indexOf(appliedName) < 0 && <option value={appliedName}>{appliedName}</option>}
               {appliedName && <option value="__clear">Clear applied plan</option>}
             </select>
+          </div>
+        </div>
+      )}
+      {nightSched && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+          <div
+            data-testid="dl-night"
+            data-from={nightSched.from}
+            data-to={nightSched.to}
+            data-cap={nightSched.bytesPerSec}
+            data-active={nightMode && nightMode.windowActive ? '1' : '0'}
+            title={`Night mode caps every download${nightMode && nightMode.windowActive ? ' RIGHT NOW' : ''} between ${nightSched.from} and ${nightSched.to}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              height: 20,
+              padding: '0 8px',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 650,
+              whiteSpace: 'nowrap',
+              background: nightMode && nightMode.windowActive ? 'rgba(245,215,142,0.14)' : 'rgba(15,26,46,0.9)',
+              border: nightMode && nightMode.windowActive ? '1px solid #f5d78e88' : '1px solid #22314b',
+              color: nightMode && nightMode.windowActive ? '#f5d78e' : '#8494ab',
+            }}
+          >
+            <I.moon size={10} style={{ flexShrink: 0 }} />
+            {nightMode && nightMode.windowActive
+              ? `night mode ON · ${fmt.formatBytes(nightSched.bytesPerSec)}/s now`
+              : `night mode ${nightSched.from}–${nightSched.to} · ${fmt.formatBytes(nightSched.bytesPerSec)}/s`}
           </div>
         </div>
       )}

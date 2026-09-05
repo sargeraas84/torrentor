@@ -394,6 +394,49 @@ async function main() {
   if (!revealBtn) defect('finished transfer offers reveal-in-folder', 'dl-reveal missing');
   else ok('finished transfer offers reveal-in-folder');
 
+  // ===== 9b. Night mode — a global clock-window cap from Settings =====
+  // Settings → Library gains a 'night mode' editor: a clock window + cap
+  // that applies to EVERY download regardless of queue plans. Enable it with
+  // a window that brackets now (±2h) at 100 KB/s, then watch the tray
+  // header's night pill light up as active.
+  const hm2 = (ms) => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  await click('[data-testid="open-settings"]');
+  await waitFor('settings modal (library) for night mode', `!!document.querySelector('[data-testid="st-library"]')`);
+  await click('[data-testid="st-library"]');
+  await waitFor('night-mode editor affordance', `!!document.querySelector('[data-testid="night-mode-on"]')`);
+  await click('[data-testid="night-mode-on"]');
+  await waitFor('night-mode editor inputs appear', `!!document.querySelector('[data-testid="night-mode-from"]') && !!document.querySelector('[data-testid="night-mode-to"]')`);
+  await setText('[data-testid="night-mode-from"]', hm2(Date.now() - 2 * 3600e3));
+  await wait(80);
+  await setText('[data-testid="night-mode-to"]', hm2(Date.now() + 2 * 3600e3));
+  await wait(80);
+  await js(`(() => { const el = document.querySelector('[data-testid="night-mode-cap"]'); if (!el) return false; el.value = '102400'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  await wait(200);
+  const nmPref = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.nightMode) || null)`);
+  if (!nmPref || !nmPref.from || !nmPref.to || nmPref.bytesPerSec !== 102400) defect('night mode pref saved from Settings', JSON.stringify(nmPref));
+  else ok('night mode enabled in Settings with a clock window', `${nmPref.from}–${nmPref.to} · 100 KB/s`);
+  await click('[data-testid="close-settings"]');
+  await waitFor('settings closed after enabling night mode', `!document.querySelector('[data-testid="st-library"]')`);
+  await waitFor(
+    'tray-header night pill shows the cap as ACTIVE',
+    `(() => { const p = document.querySelector('[data-testid="download-tray"] [data-testid="dl-night"]'); return p && p.getAttribute('data-active') === '1' && p.getAttribute('data-cap') === '102400' && /night mode ON/.test(p.textContent) ? p.textContent.replace(/\s+/g, ' ').trim() : null; })()`,
+    8000
+  );
+  ok('night mode cap active in the tray header');
+  // Turn it off again so the rest of the playtest runs unpaced.
+  await click('[data-testid="open-settings"]');
+  await waitFor('settings reopened for the night-mode off', `!!document.querySelector('[data-testid="st-library"]')`);
+  await click('[data-testid="st-library"]');
+  await waitFor('night-mode off button available', `!!document.querySelector('[data-testid="night-mode-off"]')`);
+  await click('[data-testid="night-mode-off"]');
+  await wait(250);
+  await click('[data-testid="close-settings"]');
+  await waitFor('night pill leaves the tray header once disabled', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-night"]')`, 8000);
+  ok('night mode disabled — tray hint clears');
+
   // ===== 10. Drag-and-drop reorders the start queue =====
   // Seed four paced demo downloads (the 100 KB/s default keeps both active
   // slots busy, so two chips queue), then DRAG the first queued chip onto

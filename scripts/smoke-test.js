@@ -1411,6 +1411,82 @@ async function main() {
     dm.setSmartOrder(false);
   });
 
+  ok('night mode: global schedule merges with plan windows; boundary ticks detect flips', async () => {
+    // Night mode is a Settings-level whole-queue cap independent of plans.
+    dm.setGlobalSchedule(null);
+    dm.clearActivePlan();
+    const info0 = dm.globalScheduleInfo();
+    assert.strictEqual(info0.schedule, null);
+    assert.strictEqual(info0.windowActive, false);
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 262144, 'no night mode → own limit unchanged');
+
+    // Whole-day night window: caps unlimited + high-own transfers; own lower
+    // limits still win.
+    dm.setGlobalSchedule({ from: '00:00', to: '00:00', bytesPerSec: 51200 });
+    const info = dm.globalScheduleInfo();
+    assert.strictEqual(info.schedule && info.schedule.bytesPerSec, 51200);
+    assert.strictEqual(info.windowActive, true);
+    assert.strictEqual(info.capNow, 51200);
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 0 }), 51200, 'night mode caps an unlimited file');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 51200, 'night mode caps a faster file');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 25600 }), 25600, 'own lower limit still wins');
+    // A queued demo chip reports the binding source on its ETA line.
+    dm.clearFinished();
+    dm.setSmartOrder(true);
+    const mk = (n) => path.join(dmDir, `night-${n}.txt`);
+    dm.startDownload('demo:content', mk('a'), null, { maxBytesPerSec: 51200 });
+    dm.startDownload('demo:content', mk('b'), null, { maxBytesPerSec: 51200 });
+    const c = dm.startDownload('demo:content', mk('c'), null, { maxBytesPerSec: 262144 });
+    const dNight = dm.etaDetail(c);
+    assert.strictEqual(dNight.rateBps, 51200, 'queued ETA rate = the night cap');
+    assert.strictEqual(dNight.basis, 'night', 'chip says night mode binds');
+    // The tighter of plan window vs night mode wins; ties go to the plan.
+    dm.setActivePlan('nightcap', { from: '00:00', to: '00:00', bytesPerSec: 102400 });
+    const dBoth = dm.etaDetail(c);
+    assert.strictEqual(dBoth.rateBps, 51200, 'night cap (50 KB/s) tighter than the plan window (100 KB/s)');
+    assert.strictEqual(dBoth.basis, 'night');
+    dm.setGlobalSchedule({ from: '00:00', to: '00:00', bytesPerSec: 204800 });
+    const dPlan = dm.etaDetail(c);
+    assert.strictEqual(dPlan.rateBps, 102400, 'plan window now tighter than night mode');
+    assert.strictEqual(dPlan.basis, 'window');
+    dm.clearActivePlan();
+    dm.setGlobalSchedule({ from: '00:00', to: '00:00', bytesPerSec: 204800 });
+    const dOwn = dm.etaDetail(c);
+    assert.strictEqual(dOwn.rateBps, 204800, 'cleared plan → night cap binds again');
+    assert.strictEqual(dOwn.basis, 'night');
+    dm.setGlobalSchedule(null);
+    dm.clearActivePlan();
+    const dFree = dm.etaDetail(c);
+    assert.strictEqual(dFree.rateBps, 262144, 'night off + no plan → own limit');
+    assert.strictEqual(dFree.basis, 'limit');
+
+    // Boundary tick: reports when the active state of either window flips
+    // (the signal main uses to broadcast clock-boundary changes).
+    dm.resetScheduleTicks();
+    const t0 = dm.scheduleBoundaryTick();
+    assert.strictEqual(t0.changed, false, 'first tick seeds the baseline');
+    dm.setGlobalSchedule({ from: '00:00', to: '00:00', bytesPerSec: 51200 });
+    const t1 = dm.scheduleBoundaryTick();
+    assert.strictEqual(t1.changed, true, 'night window entering is a boundary flip');
+    assert.strictEqual(t1.night, true);
+    dm.setGlobalSchedule(null);
+    const t2 = dm.scheduleBoundaryTick();
+    assert.strictEqual(t2.changed, true, 'night window leaving is a boundary flip');
+    assert.strictEqual(t2.night, false);
+    dm.setActivePlan('p', { from: '00:00', to: '00:00', bytesPerSec: 51200 });
+    const t3 = dm.scheduleBoundaryTick();
+    assert.strictEqual(t3.changed, true, 'plan window entering is a boundary flip');
+    assert.strictEqual(t3.plan, true);
+    const t4 = dm.scheduleBoundaryTick();
+    assert.strictEqual(t4.changed, false, 'no flip → no broadcast');
+    dm.clearActivePlan();
+    dm.resetScheduleTicks();
+    for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
+    await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
+    dm.clearFinished();
+    dm.setSmartOrder(false);
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);

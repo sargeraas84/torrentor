@@ -347,6 +347,49 @@ async function main() {
         }
       }
     }
+
+    // ---- scenario 6: an ARMED schedule plan survives a relaunch ----
+    let server6 = null;
+    let dataDir6 = null;
+    try {
+      const payload6 = makePayload();
+      server6 = await serveSlow(payload6, [], null);
+      const { port: port6 } = server6.address();
+      dataDir6 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-night-boot-'));
+      const base6 = `http://127.0.0.1:${port6}/`;
+      const env6 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir6,
+        TORRENTOR_RESUME_BASE: base6,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+      };
+
+      // boot #1: smart order on, four genuine downloads at 512 KB/s each,
+      // then a SCHEDULE-ONLY plan ('boot-night', window = now ± 2h @ 40 KB/s)
+      // saved and APPLIED — the apply persists the armed plan — and quit
+      // mid-flight.
+      const p1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env6, { TORRENTOR_RESUME_PHASE: 'night-start' }));
+      check(p1.code === 0, `night boot #1 exited ${p1.code} — ${p1.err.slice(0, 200)}`);
+      check(/NIGHT_BOOT1_ARMED/.test(p1.out), 'boot #1 applied the active schedule-only plan');
+
+      // boot #2: the applied plan must be RE-ARMED from prefs (no manual
+      // re-apply) with its window still active, and the 40 KB/s cap must be
+      // genuinely pacing the restored transfers.
+      const p2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env6, { TORRENTOR_RESUME_PHASE: 'night-verify' }));
+      check(p2.code === 0, `night boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
+      check(/NIGHT_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the armed plan with its window active');
+      check(/NIGHT_BOOT2_PACED_OK/.test(p2.out), 'boot #2 the restored window is really capping the queue');
+      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window auto-restored + measured pacing ≈ 40 KB/s in boot #2');
+    } finally {
+      if (server6) server6.close();
+      if (dataDir6) {
+        try {
+          fs.rmSync(dataDir6, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
   } finally {
     server.close();
     try {

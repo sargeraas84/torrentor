@@ -141,6 +141,12 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
     }
   };
 
+  // Night mode: a GLOBAL clock-window speed cap applied to every download
+  // regardless of queue plans (main enforces it live from prefs.nightMode).
+  // Stored as null when off, { from, to, bytesPerSec } when on.
+  const nm = prefs.nightMode || null;
+  const setNm = (patch) => onSetPrefs({ nightMode: Object.assign({ from: '23:00', to: '07:00', bytesPerSec: 100 * 1024 }, nm || {}, patch) });
+
   const enabledCount = engines.filter((e) => e.enabled).length;
 
   return (
@@ -456,6 +462,68 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                     </option>
                   ))}
                 </select>
+              </Row>
+              <Row
+                label="Night mode (global speed window)"
+                desc={nm ? `${nm.from}–${nm.to} · caps every download to ${limitOptionLabel(nm.bytesPerSec)} while the clock is inside the window — independent of any queue plan.` : 'A clock-window speed cap that applies to every download, plan or no plan (like a quiet-hours throttle).'}
+              >
+                {nm ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      data-testid="night-mode-from"
+                      type="time"
+                      value={nm.from}
+                      onChange={(e) => setNm({ from: e.target.value })}
+                      style={{
+                        height: 28,
+                        padding: '0 6px',
+                        borderRadius: 7,
+                        background: '#0b1526',
+                        border: '1px solid #22314b',
+                        color: '#cfe3f7',
+                        fontSize: 11.5,
+                        outline: 'none',
+                      }}
+                    />
+                    <span style={{ color: '#5b6b84', fontSize: 12 }}>–</span>
+                    <input
+                      data-testid="night-mode-to"
+                      type="time"
+                      value={nm.to}
+                      onChange={(e) => setNm({ to: e.target.value })}
+                      style={{
+                        height: 28,
+                        padding: '0 6px',
+                        borderRadius: 7,
+                        background: '#0b1526',
+                        border: '1px solid #22314b',
+                        color: '#cfe3f7',
+                        fontSize: 11.5,
+                        outline: 'none',
+                      }}
+                    />
+                    <select
+                      data-testid="night-mode-cap"
+                      className="app-nodrag"
+                      style={{ ...inputStyle, width: 'auto' }}
+                      value={String(nm.bytesPerSec)}
+                      onChange={(e) => setNm({ bytesPerSec: Number(e.target.value) })}
+                    >
+                      {LIMIT_PRESETS.filter((v) => v > 0).map((v) => (
+                        <option key={v} value={String(v)}>
+                          {limitOptionLabel(v)}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" data-testid="night-mode-off" style={ghostBtn} onClick={() => onSetPrefs({ nightMode: null })}>
+                      <I.close size={12} /> Turn off
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" data-testid="night-mode-on" style={ghostBtn} onClick={() => setNm({})}>
+                    <I.moon size={13} /> Enable night mode
+                  </button>
+                )}
               </Row>
               <div style={{ fontWeight: 700, fontSize: 12.5, color: '#b7c7dd', marginTop: 4 }}>Per-source download folders</div>
               <div style={{ color: '#5b6b84', fontSize: 11.5, marginBottom: 2 }}>

@@ -388,6 +388,88 @@ async function phasePlanVerify(win) {
   app.exit(0);
 }
 
+async function phaseNightStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Smart order on, then an ARMED schedule plan whose window is active RIGHT
+  // NOW (now ±2h, so boot #2 a minute or two later is still inside it) and
+  // whose cap (40 KB/s) sits far below the 512 KB/s per-transfer limits —
+  // so the window is what actually paces every transfer.
+  await js(`window.torrentor.setSmartOrder(true)`);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hm = (ms) => {
+    const d = new Date(ms);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const from = hm(Date.now() - 2 * 3600e3);
+  const to = hm(Date.now() + 2 * 3600e3);
+  const urls = [0, 1, 2, 3].map((i) => `${BASE}night-${i}.bin`);
+  const results = [];
+  for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
+  const ts = results.map((r) => r && r.transfer);
+  if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('night seed transfers did not start cleanly');
+  await js(`Promise.all([${ts.map((t) => t.id).join(',')}].map((id) => window.torrentor.setDownloadLimit(id, 524288)))`);
+  // Save a SCHEDULE-ONLY plan (zero entries) and apply it through the real
+  // IPC — apply arms the plan AND persists it (prefs.appliedQueuePlan) so
+  // the next boot restores it without a manual re-apply.
+  const saved = await js(`window.torrentor.saveQueuePlan('boot-night', {}, {}, ${JSON.stringify({ from, to, bytesPerSec: 40960 })})`);
+  const rec = (saved && saved['boot-night']) || null;
+  if (!rec || !rec.schedule || rec.entries.length !== 0) throw new Error(`night plan not saved as schedule-only: ${JSON.stringify(rec)}`);
+  const res = await js(`window.torrentor.applyQueuePlan('boot-night')`);
+  const info = res && res.appliedPlan;
+  if (!info || info.name !== 'boot-night' || !info.windowActive) throw new Error(`boot#1 did not arm the active plan: ${JSON.stringify(info)}`);
+  // Give the persisted prefs a beat to flush before quitting mid-flight.
+  await new Promise((r) => setTimeout(r, 700));
+  console.log(`NIGHT_BOOT1_ARMED window=${from}-${to} cap=40960 active=true`);
+  console.log('NIGHT_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phaseNightVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Boot #2 must come back with the plan STILL ARMED (main re-arms it from
+  // prefs.appliedQueuePlan before the window loads) and its window still
+  // active — no manual re-apply.
+  const info = await waitFor(
+    'boot#2 restored the armed plan with its window active',
+    () => js(`window.torrentor.getAppliedPlan().then((i) => (i && i.name === 'boot-night' && i.windowActive ? i : null))`),
+    20000
+  );
+  const prefAp = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.appliedQueuePlan) || null)`);
+  if (!prefAp || prefAp.name !== 'boot-night') throw new Error(`appliedQueuePlan pref missing: ${JSON.stringify(prefAp)}`);
+  console.log(`NIGHT_BOOT2_PLAN_OK name=boot-night window=${info.schedule && info.schedule.from}-${info.schedule && info.schedule.to} active=true`);
+  // The cap must be REAL: measure an active restored transfer's byte growth
+  // over ~1.6 s. At the 40 KB/s window cap that is ~64 KB; if the window
+  // failed to survive, the local server paces ~400 KB/s and it would be
+  // ~640 KB — an order of magnitude apart.
+  const active0 = await waitFor(
+    'boot#2 a restored transfer is actively downloading',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const a = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)})).find((t) => t.status === 'downloading');
+        return a ? { id: a.id, received: a.received } : null;
+      })()`),
+    30000
+  );
+  await new Promise((r) => setTimeout(r, 1600));
+  const after = await js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const a = list.find((t) => t.id === ${active0.id});
+        return a ? { received: a.received, status: a.status } : null;
+      })()`);
+  if (!after || after.status !== 'downloading') throw new Error(`boot#2 active transfer finished during the pacing window: ${JSON.stringify(after)}`);
+  const delta = after.received - active0.received;
+  if (delta < 20000 || delta > 150000) throw new Error(`boot#2 pacing not capped by the restored window: delta=${delta} over 1.6s`);
+  console.log(`NIGHT_BOOT2_PACED_OK delta=${delta} over 1.6s (~40 KB/s cap)`);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
+}
+
 async function phasePauseStart(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const started = await js(`window.torrentor.downloadFile(${JSON.stringify(DL_URL)})`);
@@ -491,6 +573,8 @@ async function main() {
     else if (PHASE === 'smart-verify') await phaseSmartVerify(win);
     else if (PHASE === 'plan-start') await phasePlanStart(win);
     else if (PHASE === 'plan-verify') await phasePlanVerify(win);
+    else if (PHASE === 'night-start') await phaseNightStart(win);
+    else if (PHASE === 'night-verify') await phaseNightVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));

@@ -83,6 +83,13 @@ async function bootstrap() {
   // Bandwidth-aware queue scheduling (tray toggle, persisted in prefs).
   downloads.setSmartOrder(!!storage.getPrefs().smartOrder);
 
+  // Live speed schedules: the Settings 'night mode' cap applies on boot, and
+  // the LAST APPLIED queue plan is re-armed exactly as the user left it —
+  // its name badge + any schedule window come back across a relaunch.
+  downloads.setGlobalSchedule(normalizeSchedule(storage.getPrefs().nightMode));
+  const appliedAtBoot = storage.getPrefs().appliedQueuePlan;
+  if (appliedAtBoot && appliedAtBoot.name) downloads.setActivePlan(String(appliedAtBoot.name), normalizeSchedule(appliedAtBoot.schedule));
+
   // Auto-resume interrupted downloads: transfers that were in flight when
   // the app last quit were persisted (url + approved destination). They
   // re-enter the queue here — before the window loads — so the tray shows
@@ -103,6 +110,16 @@ async function bootstrap() {
   registerIpc();
   registerEvents();
 
+  // Clock-boundary re-evaluation: the applied plan's window and the night
+  // mode window are hour-shaped, so poll the clock; when a boundary flips
+  // either one active/inactive, broadcast so the tray header hints + chip
+  // basis words update WITHOUT waiting for a download to tick.
+  const scheduleTimer = setInterval(() => {
+    const t = downloads.scheduleBoundaryTick();
+    if (t.changed) broadcastDownloads('plan', null);
+  }, 10000);
+  scheduleTimer.unref && scheduleTimer.unref();
+
   // Safety net: if the renderer ever stalls, never leave the splash up.
   if (!SMOKE_MODE) {
     setTimeout(() => {
@@ -122,6 +139,26 @@ async function bootstrap() {
 function applyProxyPrefs() {
   const cfg = storage ? storage.getPrefs().proxy : { enabled: false };
   network.setProxyConfig(cfg);
+}
+
+/**
+ * Normalize a clock-window schedule ({ from, to, bytesPerSec }) to a
+ * validated shape, or null. Shared by the queue-plan save path, the night
+ * mode pref, and the boot restore of an applied plan.
+ */
+function normalizeSchedule(s) {
+  if (!s) return null;
+  const from = String(s.from || '').trim();
+  const to = String(s.to || '').trim();
+  const bps = Math.max(0, Math.floor(Number(s.bytesPerSec) || 0));
+  return from && to && bps > 0 ? { from, to, bytesPerSec: bps } : null;
+}
+
+/** A saved plan record may be { entries, schedule } or a legacy plain array. */
+function planRecord(rec) {
+  if (!rec) return null;
+  if (Array.isArray(rec)) return { entries: rec, schedule: null };
+  return { entries: rec.entries || [], schedule: rec.schedule || null };
 }
 
 // --------------------------------------------------------------- window
@@ -263,7 +300,13 @@ function broadcast(channel, payload) {
 
 /** Broadcast the current download list to every window. */
 function broadcastDownloads(kind, id) {
-  broadcast('downloads:changed', { snapshot: downloads.snapshot(), appliedPlan: downloads.appliedPlanInfo(), kind: kind || 'changed', id: id || null });
+  broadcast('downloads:changed', {
+    snapshot: downloads.snapshot(),
+    appliedPlan: downloads.appliedPlanInfo(),
+    nightMode: downloads.globalScheduleInfo(),
+    kind: kind || 'changed',
+    id: id || null,
+  });
   // Persist whatever is still in flight so an interrupted download
   // auto-resumes on next launch (finished/cancelled entries drop out of
   // the resumable set on their final transition) — and keep the lifetime
@@ -406,6 +449,9 @@ function registerIpc() {
       if (!check.ok) throw new Error(check.error);
       applyProxyPrefs();
     }
+    // Night mode is a live cap — apply it the moment Settings changes it
+    // (Settings → Library stores it as prefs.nightMode).
+    if (partial && partial.nightMode !== undefined) downloads.setGlobalSchedule(normalizeSchedule(out.nightMode));
     return out;
   });
 
@@ -481,6 +527,8 @@ function registerIpc() {
 
   handle('downloads:appliedPlan', () => downloads.appliedPlanInfo());
 
+  handle('downloads:globalSchedule', () => downloads.globalScheduleInfo());
+
   // Lifetime per-source download tallies (count + bytes + timestamped
   // events per engine id) for the Library views. Live from the manager,
   // which main seeded from storage at boot and persists on every download
@@ -509,19 +557,6 @@ function registerIpc() {
   // { from: '23:00', to: '07:00', bytesPerSec: 102400 } that throttles the
   // WHOLE queue while the local clock is inside the window. Plans saved
   // before schedules existed (plain entry arrays) are tolerated everywhere.
-  const planRecord = (rec) => {
-    if (!rec) return null;
-    if (Array.isArray(rec)) return { entries: rec, schedule: null };
-    return { entries: rec.entries || [], schedule: rec.schedule || null };
-  };
-  const normalizeSchedule = (s) => {
-    if (!s) return null;
-    const from = String(s.from || '').trim();
-    const to = String(s.to || '').trim();
-    const bps = Math.max(0, Math.floor(Number(s.bytesPerSec) || 0));
-    return from && to && bps > 0 ? { from, to, bytesPerSec: bps } : null;
-  };
-
   handle('queuePlans:save', ({ name, patch, folderPatch, schedule }) => {
     const key = String(name || '').trim();
     if (!key) throw new Error('Give the plan a name first.');
@@ -545,6 +580,9 @@ function registerIpc() {
     // land for real (folder rules cover files queued later too).
     downloads.setActivePlan(key, rec.schedule);
     const applied = downloads.applyPlanEntries(rec.entries, (entry, kind) => broadcastDownloads(kind, entry.id));
+    // Remember the armed plan so the next launch restores it (name badge +
+    // any schedule window) exactly as the user left it.
+    storage.updatePrefs({ appliedQueuePlan: { name: key, schedule: rec.schedule } });
     return { applied, appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };
   });
 
@@ -557,6 +595,7 @@ function registerIpc() {
     // not outlive the plan it came from.
     if (downloads.activePlanNameOf() === key) {
       downloads.clearActivePlan();
+      storage.updatePrefs({ appliedQueuePlan: null });
       broadcastDownloads('plan', null);
     }
     return plans;
@@ -564,6 +603,7 @@ function registerIpc() {
 
   handle('queuePlans:clearApplied', () => {
     downloads.clearActivePlan();
+    storage.updatePrefs({ appliedQueuePlan: null });
     broadcastDownloads('plan', null);
     return { appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };
   });

@@ -58,6 +58,9 @@ function App() {
   // The currently applied queue plan (name surfaced on chips + a tray
   // header switcher; its schedule may be throttling the whole queue now).
   const [appliedPlan, setAppliedPlan] = useState({ name: '', schedule: null, windowActive: false, capNow: 0 });
+  // Settings 'night mode': a global clock-window cap on every download,
+  // independent of any queue plan (live active state for the tray header).
+  const [nightMode, setNightMode] = useState({ schedule: null, windowActive: false, capNow: 0 });
 
   const seqRef = useRef(0);
   const toastTimer = useRef(null);
@@ -272,11 +275,14 @@ function App() {
     });
     const unsubHealth = api.onHealthProgress((list) => setHealth(list || []));
     const unsubMax = api.onMaximized(setMaxed);
-    const unsubDl = api.onDownloadsChanged(({ snapshot, kind, appliedPlan }) => {
+    const unsubDl = api.onDownloadsChanged(({ snapshot, kind, appliedPlan, nightMode }) => {
       setDownloads(snapshot || []);
       // The applied queue plan (name badge + schedule window) rides every
       // broadcast, so a delete/clear/apply elsewhere stays in sync.
       if (appliedPlan) setAppliedPlan(appliedPlan);
+      // …as does the night-mode window's live active state (clock boundary
+      // flips broadcast without a download tick).
+      if (nightMode) setNightMode(nightMode);
       // A completed transfer moves bytes between sources' tallies — keep
       // the Library panel fresh without polling.
       if (kind === 'done') refreshDlStats();
@@ -290,6 +296,12 @@ function App() {
     api
       .getAppliedPlan()
       .then((info) => info && setAppliedPlan(info))
+      .catch(() => {
+        /* non-fatal */
+      });
+    api
+      .getGlobalSchedule()
+      .then((info) => info && setNightMode(info))
       .catch(() => {
         /* non-fatal */
       });
@@ -463,6 +475,16 @@ function App() {
     try {
       const out = await api.setPrefs(partial);
       setPrefsState(out);
+      // Night mode is enforced live in main — refresh the tray's active
+      // state hint the moment Settings toggles it.
+      if (partial && partial.nightMode !== undefined) {
+        try {
+          const info = await api.getGlobalSchedule();
+          if (info) setNightMode(info);
+        } catch {
+          /* non-fatal */
+        }
+      }
       return out;
     } catch (err) {
       showToast((err && err.error) || 'Could not save settings');
@@ -737,7 +759,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} />
 
       {settingsOpen && (
         <SettingsModal
