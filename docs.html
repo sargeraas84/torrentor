@@ -86,10 +86,10 @@
                 <table>
                   <thead><tr><th>Command</th><th>What it proves</th></tr></thead>
                   <tbody>
-                    <tr><td><code>npm test</code></td><td>74 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder/pause/restore, per-source folder rules, and bulk pause/resume. No window, no network.</td></tr>
-                    <tr><td><code>npm run test:resume</code></td><td>3 two-boot checks — boots the real app twice on one data dir over a slow Range-capable local server: starts a genuine download, quits mid-flight, relaunches, and asserts the transfer auto-resumed from its <code>.part</code> to the exact full size.</td></tr>
+                    <tr><td><code>npm test</code></td><td>77 pure-Node checks — engines, honesty gate, merge, paging, health runner, the download stream/allowlist/Range-resume/speed-limit, the transfer queue scheduler + reorder (arrows <i>and</i> absolute drag positions)/pause/restore, per-source folder rules, bulk pause/resume, paused-restart semantics, and lifetime per-source tallies. No window, no network.</td></tr>
+                    <tr><td><code>npm run test:resume</code></td><td>5 two-boot checks — boots the real app twice on one data dir over a slow Range-capable local server: starts a genuine download, quits mid-flight, relaunches, and asserts the transfer auto-resumed from its <code>.part</code> to the exact full size; a second scenario pauses a genuine download, quits, relaunches, and proves it came back <b>parked</b> (zero network activity) with the per-source folder rule intact.</td></tr>
                     <tr><td><code>npm run test:electron</code></td><td>8 IPC checks through the real main process — search, favorites, health round-trip.</td></tr>
-                    <tr><td><code>npm run test:ui</code></td><td>38-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, sets the default speed limit and watches a <i>paced</i> demo download (tray control raised mid-flight, paused &amp; resumed), picks a per-source save folder in Settings, then streams a real Internet Archive file end-to-end.</td></tr>
+                    <tr><td><code>npm run test:ui</code></td><td>40-step real-window playtest: types real queries, pages, favorites, VPN save &amp; check IP, sets the default speed limit and watches a <i>paced</i> demo download (tray control raised mid-flight, paused &amp; resumed), reorders the queue by <b>drag-and-drop</b>, verifies the Library's per-source download tallies, then streams a real Internet Archive file end-to-end.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -182,6 +182,15 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <h2>Changelog</h2>
               <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
               <div class="card">
+                <h3 style="margin-bottom: 4px;">v1.4.2 — Drag-and-drop queue, lifetime download tallies, pause survives restart</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-05</p>
+                <ul>
+                  <li><b>Drag-and-drop queue reordering.</b> Queued tray chips are draggable — grab one and drop it onto a sibling to splice it into that queue slot (the old up/down arrows remain for fine moves). Backed by a new absolute-position <code>moveTo</code> IPC, so the dragged chip lands exactly where you put it.</li>
+                  <li><b>Lifetime per-source download tallies.</b> The Favorites and Recent views open with a <b>Downloads by source</b> panel: files + bytes per source (Internet Archive, distro ISOs, Arch, Demo, other), sorted by volume with a proportional bar and a lifetime total. Counts are persisted and survive restarts — clearing the tray never clears the tallies.</li>
+                  <li><b>A user pause survives a restart.</b> Paused transfers are now persisted as <i>paused</i>: relaunch parks them (partial kept, zero network activity) instead of dropping them — resume stays manual, exactly as the user left it. The two-boot test now proves both directions: interrupted downloads auto-resume, paused ones stay parked, and per-source folder rules ride through a relaunch.</li>
+                </ul>
+              </div>
+              <div class="card">
                 <h3 style="margin-bottom: 4px;">v1.4.1 — Pause, per-source folders, real-app CI</h3>
                 <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">2026-09-05</p>
                 <ul>
@@ -239,7 +248,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li>Favorites &amp; history, result paging, thumbnails, and a VPN / proxy route with exit-IP check.</li>
                 </ul>
               </div>
-              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 74 Node checks, 8 Electron IPC checks, 3 two-boot resume checks, and a 38-step real-window playtest (which paces and pauses a demo download, sets a per-source save folder, and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab); the <code>ci</code> workflow also runs the Electron IPC + two-boot suites on every push.</div>
+              <div class="note"><b>Shipped by hand, verified by machine.</b> v1.1.0 was built and attached locally; every release runs the full suite — 77 Node checks, 8 Electron IPC checks, 5 two-boot resume checks, and a 40-step real-window playtest (which paces, pauses, drag-reorders and tallies downloads, sets per-source save folders, and streams a genuine Archive file). CI builds both platforms' installers and opens a draft release on every <code>v*</code> tag (or on demand from the Actions tab); the <code>ci</code> workflow also runs the Electron IPC + two-boot suites on every push.</div>
             </div>
         </div>
       </div>
