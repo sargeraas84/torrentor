@@ -402,6 +402,7 @@ async function phaseNightStart(win) {
   };
   const from = hm(Date.now() - 2 * 3600e3);
   const to = hm(Date.now() + 2 * 3600e3);
+  const today = new Date().getDay(); // weekday selector: this window only runs today
   const urls = [0, 1, 2, 3].map((i) => `${BASE}night-${i}.bin`);
   const results = [];
   for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
@@ -410,13 +411,23 @@ async function phaseNightStart(win) {
   await js(`Promise.all([${ts.map((t) => t.id).join(',')}].map((id) => window.torrentor.setDownloadLimit(id, 524288)))`);
   // Save a SCHEDULE-ONLY plan (zero entries) and apply it through the real
   // IPC — apply arms the plan AND persists it (prefs.appliedQueuePlan) so
-  // the next boot restores it without a manual re-apply.
-  const saved = await js(`window.torrentor.saveQueuePlan('boot-night', {}, {}, ${JSON.stringify({ from, to, bytesPerSec: 40960 })})`);
+  // the next boot restores it without a manual re-apply. The schedule
+  // carries a WEEKDAY selector (this window only runs today), which boot #2
+  // must restore verbatim.
+  const saved = await js(`window.torrentor.saveQueuePlan('boot-night', {}, {}, ${JSON.stringify({ from, to, bytesPerSec: 40960, days: [today] })})`);
   const rec = (saved && saved['boot-night']) || null;
   if (!rec || !rec.schedule || rec.entries.length !== 0) throw new Error(`night plan not saved as schedule-only: ${JSON.stringify(rec)}`);
+  if (!rec.schedule.days || rec.schedule.days.join(',') !== String(today)) throw new Error(`night plan weekday selector missing: ${JSON.stringify(rec.schedule)}`);
   const res = await js(`window.torrentor.applyQueuePlan('boot-night')`);
   const info = res && res.appliedPlan;
   if (!info || info.name !== 'boot-night' || !info.windowActive) throw new Error(`boot#1 did not arm the active plan: ${JSON.stringify(info)}`);
+  // ALSO enable Settings night mode with its own weekday selector: same
+  // window bracket but a LOOSER cap (100 KB/s), so the plan's 40 KB/s still
+  // binds and the boot-#2 pacing measurement stays clean — while proving
+  // night-mode weekdays persist across the relaunch too.
+  const nightSaved = await js(`window.torrentor.setPrefs({ nightMode: { from: ${JSON.stringify(from)}, to: ${JSON.stringify(to)}, bytesPerSec: 102400, days: [${today}] } })`);
+  const nmPref = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.nightMode) || null)`);
+  if (!nmPref || !nmPref.days || nmPref.days.join(',') !== String(today)) throw new Error(`night-mode weekday selector not saved: ${JSON.stringify(nmPref)}`);
   // Give the persisted prefs a beat to flush before quitting mid-flight.
   await new Promise((r) => setTimeout(r, 700));
   console.log(`NIGHT_BOOT1_ARMED window=${from}-${to} cap=40960 active=true`);
@@ -437,7 +448,15 @@ async function phaseNightVerify(win) {
   );
   const prefAp = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.appliedQueuePlan) || null)`);
   if (!prefAp || prefAp.name !== 'boot-night') throw new Error(`appliedQueuePlan pref missing: ${JSON.stringify(prefAp)}`);
-  console.log(`NIGHT_BOOT2_PLAN_OK name=boot-night window=${info.schedule && info.schedule.from}-${info.schedule && info.schedule.to} active=true`);
+  const today = new Date().getDay();
+  // The weekday selector must have survived the relaunch on BOTH the armed
+  // plan's schedule and the Settings night-mode pref.
+  if (!info.schedule || !info.schedule.days || info.schedule.days.join(',') !== String(today)) throw new Error(`boot#2 plan weekday selector lost: ${JSON.stringify(info.schedule)}`);
+  const nmPref2 = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.nightMode) || null)`);
+  if (!nmPref2 || !nmPref2.days || nmPref2.days.join(',') !== String(today)) throw new Error(`boot#2 night-mode weekday selector lost: ${JSON.stringify(nmPref2)}`);
+  const nmLive = await js(`window.torrentor.getGlobalSchedule()`);
+  if (!nmLive || !nmLive.windowActive || !nmLive.schedule || !nmLive.schedule.days) throw new Error(`boot#2 night mode not live with weekdays: ${JSON.stringify(nmLive)}`);
+  console.log(`NIGHT_BOOT2_PLAN_OK name=boot-night window=${info.schedule && info.schedule.from}-${info.schedule && info.schedule.to} days=[${today}] active=true`);
   // The cap must be REAL: measure an active restored transfer's byte growth
   // over ~1.6 s. At the 40 KB/s window cap that is ~64 KB; if the window
   // failed to survive, the local server paces ~400 KB/s and it would be

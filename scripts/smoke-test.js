@@ -1481,6 +1481,62 @@ async function main() {
     assert.strictEqual(t4.changed, false, 'no flip → no broadcast');
     dm.clearActivePlan();
     dm.resetScheduleTicks();
+
+    // Weekday selectors: a schedule with a non-empty `days` array is active
+    // only on those weekdays (JS Date.getDay(): 0 = Sunday … 6 = Saturday).
+    assert.deepStrictEqual(dm.normalizeDays([2, 2, 1, '3']), [1, 2, 3], 'normalizeDays dedupes + sorts + coerces');
+    assert.strictEqual(dm.normalizeDays([]), null, 'empty days = every day');
+    assert.strictEqual(dm.normalizeDays('nope'), null, 'non-array days ignored');
+    assert.strictEqual(dm.normalizeDays([8]), null, 'invalid weekday numbers dropped');
+    const week = { from: '23:00', to: '07:00', bytesPerSec: 51200, days: [1, 2, 3, 4, 5] };
+    assert.strictEqual(dm.scheduleWindowActive(week, 0 * 60, 2), true, 'weekday inside window + selected day → active');
+    assert.strictEqual(dm.scheduleWindowActive(week, 0 * 60, 6), false, 'selected times but wrong weekday → inactive');
+    assert.strictEqual(dm.scheduleWindowActive(week, 12 * 60, 2), false, 'right weekday but outside window → inactive');
+    assert.strictEqual(dm.scheduleWindowActive({ ...week, days: null }, 0 * 60, 6), true, 'null days = every day');
+    assert.strictEqual(dm.scheduleWindowActive({ ...week, days: [] }, 0 * 60, 6), true, 'empty days = every day');
+    const weekPlan = dm.setActivePlan('wk', week);
+    assert.deepStrictEqual(weekPlan.schedule.days, [1, 2, 3, 4, 5], 'setActivePlan preserves the weekday selector');
+    dm.clearActivePlan();
+
+    // Session override (the tray pill): force night mode on/off regardless
+    // of the clock window; null returns to following the window. The test
+    // window is guaranteed to be in the past (now−3h → now−2h), so the
+    // clock can never make it active by accident.
+    const pad = (n) => String(n).padStart(2, '0');
+    const hmOf = (ms) => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
+    dm.setGlobalSchedule({ from: hmOf(Date.now() - 3 * 3600e3), to: hmOf(Date.now() - 2 * 3600e3), bytesPerSec: 51200 });
+    const override0 = dm.globalScheduleInfo();
+    assert.strictEqual(override0.override, null, 'override starts null (follow the window)');
+    assert.strictEqual(override0.windowActive, false, 'past window is inactive');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 262144, 'no override, outside window → no cap');
+    const on = dm.setNightOverride(true);
+    assert.strictEqual(on.override, true);
+    assert.strictEqual(on.windowActive, true, 'override forces the night cap on outside the window');
+    assert.strictEqual(on.capNow, 51200);
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 51200, 'forced-on night cap binds');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 25600 }), 25600, 'own lower limit still wins under override');
+    const off = dm.setNightOverride(false);
+    assert.strictEqual(off.override, false);
+    assert.strictEqual(off.windowActive, false, 'override forces night mode off');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 262144, 'forced-off → no night cap even inside the window');
+    dm.setNightOverride(null);
+    assert.strictEqual(dm.globalScheduleInfo().windowActive, false, 'null override follows the window again');
+    dm.setGlobalSchedule(null);
+
+    // capBreakdown: exposes own vs plan window vs night for the chip
+    // tooltip when a shared cap binds; null when no shared cap applies.
+    assert.strictEqual(dm.capBreakdown({ maxBytesPerSec: 262144 }), null, 'no shared cap → nothing to explain');
+    dm.setActivePlan('nightcap', { from: '00:00', to: '00:00', bytesPerSec: 102400 });
+    dm.setGlobalSchedule({ from: '00:00', to: '00:00', bytesPerSec: 51200 });
+    const bd = dm.capBreakdown({ maxBytesPerSec: 262144 });
+    assert.deepStrictEqual(bd.planWindow, { cap: 102400, name: 'nightcap' }, 'plan window listed with its name');
+    assert.deepStrictEqual(bd.night, { cap: 51200 }, 'night cap listed');
+    assert.strictEqual(bd.effective, 51200, 'tighter of the two shared caps is effective');
+    assert.strictEqual(bd.binding, 'night', 'binding source reported');
+    assert.strictEqual(dm.capBreakdown({ maxBytesPerSec: 25600 }).effective, 25600, 'own lower limit is the effective speed');
+    assert.strictEqual(dm.capBreakdown({ maxBytesPerSec: 25600 }).binding, 'limit', '…and its own limit binds');
+    dm.clearActivePlan();
+    dm.setGlobalSchedule(null);
     for (const t of dm.snapshot().filter((x) => x.filePath.startsWith(dmDir))) dm.setSpeedLimit(t.id, 0);
     await waitFor(() => dm.snapshot().every((t) => t.status === 'done' || t.status === 'error'), 10000);
     dm.clearFinished();

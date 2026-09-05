@@ -183,6 +183,17 @@ function App() {
       /* non-fatal */
     }
   };
+  // Session-only night-mode toggle: the tray pill click flips night mode
+  // on/off for THIS session without opening Settings (forced override; the
+  // configured clock window resumes on the next launch).
+  const toggleNight = async () => {
+    try {
+      const info = await api.setNightOverride(!(nightMode && nightMode.windowActive));
+      if (info) setNightMode(info);
+    } catch {
+      /* non-fatal */
+    }
+  };
   const deletePlan = async (name) => {
     try {
       await api.deleteQueuePlan(name);
@@ -759,7 +770,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} onNightToggle={toggleNight} />
 
       {settingsOpen && (
         <SettingsModal

@@ -379,7 +379,7 @@ async function main() {
       check(p2.code === 0, `night boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
       check(/NIGHT_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the armed plan with its window active');
       check(/NIGHT_BOOT2_PACED_OK/.test(p2.out), 'boot #2 the restored window is really capping the queue');
-      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window auto-restored + measured pacing ≈ 40 KB/s in boot #2');
+      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window + weekday selector auto-restored; night-mode weekdays persisted; measured pacing ≈ 40 KB/s in boot #2');
     } finally {
       if (server6) server6.close();
       if (dataDir6) {

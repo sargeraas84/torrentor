@@ -146,6 +146,16 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
   // Stored as null when off, { from, to, bytesPerSec } when on.
   const nm = prefs.nightMode || null;
   const setNm = (patch) => onSetPrefs({ nightMode: Object.assign({ from: '23:00', to: '07:00', bytesPerSec: 100 * 1024 }, nm || {}, patch) });
+  // Toggle one weekday in the night window's days array (empty → undefined,
+  // meaning every day of the week).
+  const toggleNmDay = (v) => {
+    const cur = Array.isArray(nm && nm.days) ? nm.days.slice() : [];
+    const i = cur.indexOf(Number(v));
+    if (i >= 0) cur.splice(i, 1);
+    else cur.push(Number(v));
+    cur.sort((a, b) => a - b);
+    setNm({ days: cur.length ? cur : undefined });
+  };
 
   const enabledCount = engines.filter((e) => e.enabled).length;
 
@@ -518,6 +528,39 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                     <button type="button" data-testid="night-mode-off" style={ghostBtn} onClick={() => onSetPrefs({ nightMode: null })}>
                       <I.close size={12} /> Turn off
                     </button>
+                    <div data-testid="night-mode-days" style={{ display: 'flex', alignItems: 'center', gap: 3, width: '100%' }}>
+                      <span style={{ color: '#5b6b84', fontSize: 10.5, flexShrink: 0 }}>Days:</span>
+                      {[1, 2, 3, 4, 5, 6, 0].map((v, i) => {
+                        const on = (nm.days || []).indexOf(v) >= 0;
+                        return (
+                          <button
+                            key={v}
+                            type="button"
+                            data-testid="night-mode-day"
+                            data-day={v}
+                            data-on={on ? '1' : '0'}
+                            className="tooltip app-nodrag"
+                            data-tip="Restrict the night window to this weekday (none selected = every day)"
+                            aria-pressed={on}
+                            style={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: 6,
+                              fontSize: 10,
+                              fontWeight: 650,
+                              cursor: 'pointer',
+                              background: on ? 'rgba(245,215,142,0.16)' : 'transparent',
+                              border: on ? '1px solid #f5d78e66' : '1px solid #22314b',
+                              color: on ? '#f5d78e' : '#5b6b84',
+                            }}
+                            onClick={() => toggleNmDay(v)}
+                          >
+                            {['M', 'T', 'W', 'T', 'F', 'S', 'S'][i]}
+                          </button>
+                        );
+                      })}
+                      {!nm.days && <span style={{ color: '#5b6b84', fontSize: 10.5 }}>every day</span>}
+                    </div>
                   </div>
                 ) : (
                   <button type="button" data-testid="night-mode-on" style={ghostBtn} onClick={() => setNm({})}>

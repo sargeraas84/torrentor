@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('torrentor', {
   getDownloads: bridge('downloads:list'),
   getAppliedPlan: bridge('downloads:appliedPlan'),
   getGlobalSchedule: bridge('downloads:globalSchedule'),
+  setNightOverride: bridge('downloads:nightOverride', (on) => ({ on })),
   getDownloadStats: bridge('downloads:stats'),
   setSmartOrder: bridge('downloads:smartOrder', (on) => ({ on })),
   previewQueue: bridge('downloads:previewQueue', (limits) => ({ limits })),

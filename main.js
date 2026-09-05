@@ -87,6 +87,7 @@ async function bootstrap() {
   // the LAST APPLIED queue plan is re-armed exactly as the user left it —
   // its name badge + any schedule window come back across a relaunch.
   downloads.setGlobalSchedule(normalizeSchedule(storage.getPrefs().nightMode));
+  downloads.setNightOverride(null); // session override resets on every boot
   const appliedAtBoot = storage.getPrefs().appliedQueuePlan;
   if (appliedAtBoot && appliedAtBoot.name) downloads.setActivePlan(String(appliedAtBoot.name), normalizeSchedule(appliedAtBoot.schedule));
 
@@ -151,7 +152,11 @@ function normalizeSchedule(s) {
   const from = String(s.from || '').trim();
   const to = String(s.to || '').trim();
   const bps = Math.max(0, Math.floor(Number(s.bytesPerSec) || 0));
-  return from && to && bps > 0 ? { from, to, bytesPerSec: bps } : null;
+  if (!(from && to && bps > 0)) return null;
+  const out = { from, to, bytesPerSec: bps };
+  const days = downloads.normalizeDays(s.days);
+  if (days) out.days = days;
+  return out;
 }
 
 /** A saved plan record may be { entries, schedule } or a legacy plain array. */
@@ -523,11 +528,16 @@ function registerIpc() {
 
   // ----------------------------------------------- direct downloads
 
-  handle('downloads:list', () => downloads.snapshot());
-
-  handle('downloads:appliedPlan', () => downloads.appliedPlanInfo());
-
+  handle('downloads:list', () => downloads.snapshot());  handle('downloads:appliedPlan', () => downloads.appliedPlanInfo());
   handle('downloads:globalSchedule', () => downloads.globalScheduleInfo());
+  // Session-only night-mode override: the tray pill click flips night mode
+  // on/off for THIS session (true = forced on, false = forced off, null =
+  // follow the clock window again). Not persisted — boot resets it.
+  handle('downloads:nightOverride', ({ on }) => {
+    const info = downloads.setNightOverride(on === true ? true : on === false ? false : null);
+    broadcastDownloads('plan', null); // night pill + chip cap breakdowns refresh
+    return info;
+  });
 
   // Lifetime per-source download tallies (count + bytes + timestamped
   // events per engine id) for the Library views. Live from the manager,

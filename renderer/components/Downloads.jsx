@@ -23,6 +23,42 @@ const ETA_BASIS_WORDS = {
   baseline: 'assumed',
 };
 
+// Weekday toggle buttons for schedule editors (JS Date.getDay() values, but
+// laid out Monday-first for readability). An empty selection = every day.
+const DAY_BUTTONS = [
+  { v: 1, l: 'M' },
+  { v: 2, l: 'T' },
+  { v: 3, l: 'W' },
+  { v: 4, l: 'T' },
+  { v: 5, l: 'F' },
+  { v: 6, l: 'S' },
+  { v: 0, l: 'S' },
+];
+const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** 'Mon–Fri' style summary for a days array ('' when null/empty = every day). */
+function daysText(days) {
+  if (!Array.isArray(days) || !days.length) return '';
+  const set = {};
+  for (const d of days) set[Number(d)] = true;
+  if (Object.keys(set).length >= 7) return ''; // every day → no suffix needed
+  const names = Object.keys(set)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((d) => DAY_SHORT[d]);
+  return ` · ${names.join(', ')}`;
+}
+
+/** Toggle one weekday in an editor's days array (empty result → undefined = every day). */
+function toggleDays(cur, v) {
+  const list = Array.isArray(cur) ? cur.slice() : [];
+  const i = list.indexOf(Number(v));
+  if (i >= 0) list.splice(i, 1);
+  else list.push(Number(v));
+  list.sort((a, b) => a - b);
+  return list.length ? list : undefined;
+}
+
 /** Compact clock text from fractional seconds: 0.56 → '1s', 95 → '1m 35s'. */
 function fmtEta(sec) {
   const s = Math.max(0, Math.round(Number(sec) || 0));
@@ -176,7 +212,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode, onNightToggle }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -193,7 +229,31 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const [planName, setPlanName] = useState(''); // save-as-plan input
   // Optional ACTIVE-WINDOW rule on the plan being saved (e.g. a 'night'
   // plan throttling the whole queue to 100 KB/s between 23:00 and 07:00).
-  const [planSchedule, setPlanSchedule] = useState(null); // { from, to, bytesPerSec } | null
+  const [planSchedule, setPlanSchedule] = useState(null); // { from, to, bytesPerSec, days? } | null
+  // Chip tooltip explaining the EFFECTIVE speed when a shared cap (plan
+  // window or night mode) binds a transfer: own limit vs plan window vs
+  // night cap. Returns null when no shared cap is binding — then the chip
+  // needs no explanation.
+  const capTip = (d) => {
+    const own = Number(d && d.maxBytesPerSec) > 0 ? Number(d.maxBytesPerSec) : null;
+    const pc = appliedPlan && appliedPlan.windowActive && appliedPlan.capNow > 0 ? appliedPlan.capNow : null;
+    const nc = nightMode && nightMode.windowActive && nightMode.capNow > 0 ? nightMode.capNow : null;
+    if (!pc && !nc) return null;
+    const sources = [];
+    if (own) sources.push(own);
+    if (pc) sources.push(pc);
+    if (nc) sources.push(nc);
+    const eff = Math.min.apply(null, sources);
+    const bind = eff === own ? 'own limit' : eff === pc ? 'plan window' : 'night mode';
+    const lines = [
+      'Effective speed breakdown:',
+      `· own limit: ${own ? fmt.formatBytes(own) + '/s' : 'unlimited'}`,
+      `· plan window${appliedPlan.name ? ` (${appliedPlan.name})` : ''}: ${pc ? fmt.formatBytes(pc) + '/s' : 'inactive'}`,
+      `· night mode: ${nc ? fmt.formatBytes(nc) + '/s' : 'inactive'}`,
+      `→ effective: ${fmt.formatBytes(eff)}/s (${bind})`,
+    ];
+    return lines.join('\n');
+  };
   // Tolerant access to a saved plan: records are { entries, schedule }
   // now; plans saved before schedules existed are plain entry arrays.
   const planRec = (name) => {
@@ -204,7 +264,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   };
   const planFileCount = (name) => (planRec(name).entries || []).length;
   const planScheduleText = (s) =>
-    s && s.from && s.to ? `${s.from}–${s.to} · ${fmt.formatBytes(s.bytesPerSec)}/s whole-queue cap` : '';
+    s && s.from && s.to ? `${s.from}–${s.to} · ${fmt.formatBytes(s.bytesPerSec)}/s whole-queue cap${daysText(s.days)}` : '';
   // Rows shown in the popover: the live queue, or (in what-if mode) the
   // hypothetical re-rank. Bars scale to the longest estimated wait.
   const displayRows = whatIf ? previewOrder || queuedItems : queuedItems;
@@ -308,6 +368,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
       setPlanSchedule({ from: '23:00', to: '07:00', bytesPerSec: 102400 });
     }
   };
+  const togglePlanDay = (v) => setPlanSchedule((s) => (s ? { ...s, days: toggleDays(s.days, v) } : s));
   const reapplyPlan = async (name) => {
     if (onReapplyPlan) await onReapplyPlan(name);
   };
@@ -494,13 +555,21 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
       )}
       {nightSched && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
-          <div
+          <button
+            type="button"
             data-testid="dl-night"
             data-from={nightSched.from}
             data-to={nightSched.to}
             data-cap={nightSched.bytesPerSec}
             data-active={nightMode && nightMode.windowActive ? '1' : '0'}
-            title={`Night mode caps every download${nightMode && nightMode.windowActive ? ' RIGHT NOW' : ''} between ${nightSched.from} and ${nightSched.to}`}
+            data-override={nightMode && nightMode.override === true ? 'on' : nightMode && nightMode.override === false ? 'off' : 'auto'}
+            className="tooltip app-nodrag"
+            data-tip={
+              nightMode && nightMode.override !== null
+                ? `Night mode ${nightMode.override ? 'forced ON' : 'forced OFF'} for this session (click to ${nightMode.override ? 'disable' : 'enable'}) — the ${nightSched.from}–${nightSched.to} window applies again on next launch`
+                : `Night mode caps every download${nightMode && nightMode.windowActive ? ' RIGHT NOW' : ''} between ${nightSched.from} and ${nightSched.to} — click to override for this session`
+            }
+            onClick={() => onNightToggle && onNightToggle()}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -511,6 +580,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               fontSize: 10,
               fontWeight: 650,
               whiteSpace: 'nowrap',
+              cursor: 'pointer',
               background: nightMode && nightMode.windowActive ? 'rgba(245,215,142,0.14)' : 'rgba(15,26,46,0.9)',
               border: nightMode && nightMode.windowActive ? '1px solid #f5d78e88' : '1px solid #22314b',
               color: nightMode && nightMode.windowActive ? '#f5d78e' : '#8494ab',
@@ -518,9 +588,11 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
           >
             <I.moon size={10} style={{ flexShrink: 0 }} />
             {nightMode && nightMode.windowActive
-              ? `night mode ON · ${fmt.formatBytes(nightSched.bytesPerSec)}/s now`
-              : `night mode ${nightSched.from}–${nightSched.to} · ${fmt.formatBytes(nightSched.bytesPerSec)}/s`}
-          </div>
+              ? `night mode ON · ${fmt.formatBytes(nightSched.bytesPerSec)}/s now${nightMode.override === true ? ' (override)' : ''}`
+              : nightMode && nightMode.override === false
+                ? `night mode off (session) · ${fmt.formatBytes(nightSched.bytesPerSec)}/s`
+                : `night mode ${nightSched.from}–${nightSched.to} · ${fmt.formatBytes(nightSched.bytesPerSec)}/s`}
+          </button>
         </div>
       )}
       {showQueueInfo && smartOrder && queuedItems.length > 0 && (
@@ -653,6 +725,44 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                     <button type="button" data-testid="dl-plan-sched-off" aria-label="Remove the schedule window" style={miniBtn} onClick={togglePlanSchedule}>
                       <I.close size={10} />
                     </button>
+                    <div
+                      data-testid="dl-plan-days"
+                      style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 7 }}
+                    >
+                      <I.clock size={9} style={{ color: '#5b7a9a', flexShrink: 0 }} />
+                      {DAY_BUTTONS.map((b) => {
+                        const on = (planSchedule.days || []).indexOf(b.v) >= 0;
+                        return (
+                          <button
+                            key={b.v}
+                            type="button"
+                            data-testid="dl-plan-day"
+                            data-day={b.v}
+                            data-on={on ? '1' : '0'}
+                            className="tooltip app-nodrag"
+                            data-tip="Restrict the window to this weekday (none selected = every day)"
+                            aria-pressed={on}
+                            style={{
+                              width: 18,
+                              height: 18,
+                              borderRadius: 5,
+                              fontSize: 9,
+                              fontWeight: 650,
+                              cursor: 'pointer',
+                              background: on ? 'rgba(245,215,142,0.16)' : 'transparent',
+                              border: on ? '1px solid #f5d78e66' : '1px solid #22314b',
+                              color: on ? '#f5d78e' : '#5b6b84',
+                            }}
+                            onClick={() => togglePlanDay(b.v)}
+                          >
+                            {b.l}
+                          </button>
+                        );
+                      })}
+                      {!planSchedule.days && (
+                        <span style={{ color: '#5b6b84', fontSize: 8.5, marginLeft: 2 }}>every day</span>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <button type="button" data-testid="dl-plan-sched-on" style={addWinBtn} onClick={togglePlanSchedule}>
@@ -744,12 +854,14 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               },
             }
           : {};
+        const capTipText = capTip(d);
         return (
           <div
             key={d.id}
             data-testid="dl-chip"
             data-id={d.id}
             data-status={d.status}
+            title={capTipText || undefined}
             {...dndProps}
             style={{
               ...chip,

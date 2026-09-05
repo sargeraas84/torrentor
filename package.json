@@ -1,7 +1,7 @@
 {
   "name": "torrentor",
   "productName": "Torrentor",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "description": "Torrentor — a privacy-first torrent meta-search desktop app. One query, many torrent sources at once, deduped by infohash, in one window.",
   "author": "Torrentor",
   "license": "MIT",

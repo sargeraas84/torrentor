@@ -415,9 +415,16 @@ async function main() {
   await wait(80);
   await js(`(() => { const el = document.querySelector('[data-testid="night-mode-cap"]'); if (!el) return false; el.value = '102400'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await wait(200);
+  // Restrict the night window to TODAY's weekday — the selector must persist
+  // into prefs AND keep the window active for the assertions below.
+  const todayDay = new Date().getDay();
+  await js(`(() => { const b = document.querySelector('[data-testid="night-mode-day"][data-day="${todayDay}"]'); if (!b) return false; b.click(); return true; })()`);
+  await waitFor('night-mode weekday selector toggles on', `(() => { const b = document.querySelector('[data-testid="night-mode-day"][data-day="${todayDay}"]'); return b && b.getAttribute('data-on') === '1'; })()`, 6000);
+  await wait(150);
   const nmPref = await js(`window.torrentor.getState().then((s) => (s.prefs && s.prefs.nightMode) || null)`);
   if (!nmPref || !nmPref.from || !nmPref.to || nmPref.bytesPerSec !== 102400) defect('night mode pref saved from Settings', JSON.stringify(nmPref));
-  else ok('night mode enabled in Settings with a clock window', `${nmPref.from}–${nmPref.to} · 100 KB/s`);
+  else if (!nmPref.days || nmPref.days.join(',') !== String(todayDay)) defect('night-mode weekday selector persisted', JSON.stringify(nmPref));
+  else ok('night mode enabled in Settings with a clock window + weekday', `${nmPref.from}–${nmPref.to} · 100 KB/s · days [${nmPref.days.join(',')}]`);
   await click('[data-testid="close-settings"]');
   await waitFor('settings closed after enabling night mode', `!document.querySelector('[data-testid="st-library"]')`);
   await waitFor(
@@ -426,6 +433,31 @@ async function main() {
     8000
   );
   ok('night mode cap active in the tray header');
+  // The pill is a ONE-CLICK session override: click it to force night mode
+  // off for this session, click again to force it back on — no Settings
+  // round-trip. (The override is session-only; the clock window applies
+  // again on the next launch.)
+  await click('[data-testid="download-tray"] [data-testid="dl-night"]');
+  await waitFor('pill click forces night mode OFF for the session', `(() => { const p = document.querySelector('[data-testid="download-tray"] [data-testid="dl-night"]'); if (p && p.getAttribute('data-override') === 'off' && p.getAttribute('data-active') === '0' && (p.textContent || '').includes('(session)')) return 'OK'; return { override: p && p.getAttribute('data-override'), active: p && p.getAttribute('data-active'), text: p && p.textContent.trim(), bridge: typeof window.torrentor.setNightOverride }; })()`, 6000);
+  ok('night pill click flips night mode off for this session');
+  await click('[data-testid="download-tray"] [data-testid="dl-night"]');
+  await waitFor('pill click forces night mode back ON', `(() => { const p = document.querySelector('[data-testid="download-tray"] [data-testid="dl-night"]'); if (p && p.getAttribute('data-override') === 'on' && p.getAttribute('data-active') === '1' && (p.textContent || '').includes('(override)')) return 'OK'; return { override: p && p.getAttribute('data-override'), active: p && p.getAttribute('data-active'), text: p && p.textContent.trim(), bridge: typeof window.torrentor.setNightOverride }; })()`, 6000);
+  ok('night pill click re-enables night mode without Settings');
+  // While the night cap is binding, a running chip's tooltip breaks the
+  // effective speed down: own limit vs plan window vs night cap. The probe
+  // inherits the 100 KB/s default (equal to the night cap), so raise its
+  // own limit — the tooltip must then name NIGHT MODE as the binding cap.
+  await js(`window.torrentor.downloadFile('demo:night-probe')`);
+  const probeChip = await waitFor('night-capped demo chip streams with a breakdown tooltip', `(() => { const c = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="downloading"]')].find((x) => x.title.indexOf('Effective speed breakdown') >= 0); return c ? { id: c.getAttribute('data-id') } : null; })()`, 8000);
+  if (!probeChip) throw new Error('no chip with a cap-breakdown tooltip under the active night window');
+  await js(`window.torrentor.setDownloadLimit(${probeChip.id}, 524288)`);
+  const capTipOk = await waitFor('chip tooltip names the binding night cap', `(() => { const c = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${probeChip.id}"]'); const t = (c && c.title) || ''; return t.indexOf('Effective speed breakdown') >= 0 && t.indexOf('own limit') >= 0 && t.indexOf('night mode') >= 0 && t.indexOf('effective:') >= 0 && t.indexOf('(night mode)') >= 0; })()`, 6000);
+  if (!capTipOk) throw new Error('cap-breakdown tooltip did not name the night cap as binding');
+  const capTipText = await js(`(() => { const c = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${probeChip.id}"]'); return (c && c.title) || ''; })()`);
+  ok('chip tooltip breaks down own limit vs night cap', String(capTipText || '').split(String.fromCharCode(10)).join(' | '));
+  // Park the probe so the next blocks start from a clean tray.
+  await js(`window.torrentor.cancelDownload(${probeChip.id})`);
+  await waitFor('probe transfer settles before the next block', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-id="${probeChip.id}"]')].some((c) => c.getAttribute('data-status') === 'downloading')`, 10000);
   // Turn it off again so the rest of the playtest runs unpaced.
   await click('[data-testid="open-settings"]');
   await waitFor('settings reopened for the night-mode off', `!!document.querySelector('[data-testid="st-library"]')`);
@@ -592,6 +624,10 @@ async function main() {
     6000
   );
   if (!schedEditor) throw new Error('schedule editor did not open with defaults');
+  // Restrict this plan's window to TODAY's weekday — the selector must ride
+  // along into the saved plan record ({ entries, schedule: { days } }).
+  await js(`(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-day"][data-day="${todayDay}"]'); if (!b) return false; b.click(); return true; })()`);
+  await waitFor('plan window weekday selector toggles on', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-day"][data-day="${todayDay}"]'); return b && b.getAttribute('data-on') === '1'; })()`, 6000);
   await setText('[data-testid="download-tray"] [data-testid="dl-plan-name"]', 'night-cap');
   await wait(150);
   await click('[data-testid="download-tray"] [data-testid="dl-plan-save"]');
@@ -606,7 +642,9 @@ async function main() {
     6000
   );
   if (!schedSaved) throw new Error('schedule-plan save check failed');
-  ok('queue plan saved with an active-window schedule', schedSaved.text);
+  const planRecDays = await js(`window.torrentor.getState().then((s) => { const p = s.prefs && s.prefs.queuePlans && s.prefs.queuePlans['night-cap']; return p && p.schedule && p.schedule.days ? p.schedule.days.join(',') : null; })`);
+  if (planRecDays !== String(todayDay)) defect('plan schedule weekday selector persisted', JSON.stringify(planRecDays));
+  else ok('queue plan saved with an active-window schedule + weekday', `${schedSaved.text} · days [${planRecDays}]`);
   // Apply it from the list: the armed plan's name rides the broadcast onto
   // every running tray chip as a small 'plan …' tag.
   await click('[data-testid="download-tray"] [data-testid="dl-plan-reapply"][data-name="night-cap"]');
