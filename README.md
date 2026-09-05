@@ -125,8 +125,9 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
 npm run test:ui    # drives the real window (real engines): search, favorites,
                     #   VPN check, paging, thumbnails, paced demo (paused &
                     #   resumed, queue reordered by drag-and-drop + smart
-                    #   order toggle), per-source save folder, and a real
-                    #   Archive direct download — needs network
+                    #   order toggle with per-chip ETA/bytes + popover),
+                    #   per-source save folder, and a real Archive direct
+                    #   download — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 
@@ -146,7 +147,7 @@ attached. Verify the four artifacts, then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.4.3 && git push origin v1.4.3
+git tag v1.4.4 && git push origin v1.4.4
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`

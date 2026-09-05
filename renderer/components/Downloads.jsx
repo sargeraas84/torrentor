@@ -179,6 +179,10 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const queuedCount = queuedItems.length;
   const [dragId, setDragId] = useState(null); // queued id being dragged
   const [dropId, setDropId] = useState(null); // queued id currently hovered as drop target
+  const [showQueueInfo, setShowQueueInfo] = useState(false); // smart-order popover
+  // Longest estimated wait among queued files — the popover's ETA bars are
+  // relative to it, so the slowest file always fills its bar.
+  const maxEta = queuedItems.reduce((m, d) => (d.etaSeconds != null && d.etaSeconds > m ? d.etaSeconds : m), 0);
   if (!downloads.length) return null;
 
   return (
@@ -224,7 +228,96 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
           <I.gauge size={11} />
           {smartOrder ? 'Smart order on' : 'Smart order off'}
         </button>
+        {smartOrder && queuedItems.length > 0 && (
+          <button
+            type="button"
+            data-testid="dl-smart-info"
+            aria-label="Explain queue order"
+            className="tooltip"
+            data-tip="Why this order — per-file ETA breakdown"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 20,
+              height: 20,
+              marginLeft: 6,
+              borderRadius: 99,
+              background: showQueueInfo ? 'rgba(34,211,238,0.15)' : 'rgba(34,211,238,0.08)',
+              border: showQueueInfo ? '1px solid #22d3ee77' : '1px solid #22d3ee44',
+              color: '#7ce7f7',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+            onClick={() => setShowQueueInfo((v) => !v)}
+          >
+            <I.info size={11} />
+          </button>
+        )}
       </div>
+      {showQueueInfo && smartOrder && queuedItems.length > 0 && (
+        <div
+          data-testid="dl-smart-pop"
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 26,
+            width: 300,
+            maxHeight: '58vh',
+            overflowY: 'auto',
+            background: '#0f1a2e',
+            border: '1px solid #22314b',
+            borderRadius: 12,
+            boxShadow: '0 18px 50px rgba(0,0,0,.55)',
+            padding: '10px 12px',
+            pointerEvents: 'auto',
+            zIndex: 115,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <I.gauge size={12} style={{ color: '#7ce7f7', flexShrink: 0 }} />
+            <span style={{ color: '#cfe3f7', fontSize: 11.5, fontWeight: 650, flex: 1 }}>Start order — fastest-finishing first</span>
+            <button type="button" aria-label="Close" data-testid="dl-smart-pop-close" style={closeBtn} onClick={() => setShowQueueInfo(false)}>
+              <I.close size={13} />
+            </button>
+          </div>
+          {queuedItems.map((d) => {
+            const eta = d.etaSeconds;
+            const known = eta != null && d.etaTotal != null;
+            return (
+              <div key={d.id} data-testid="dl-smart-row" data-id={d.id} style={{ padding: '6px 0', borderBottom: '1px solid #16253d' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                  <span title={d.name} style={{ flex: 1, minWidth: 0, color: '#cfe3f7', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {d.name}
+                  </span>
+                  <span data-testid="dl-smart-row-eta" style={{ color: '#7ce7f7', fontSize: 10.5, fontWeight: 650, whiteSpace: 'nowrap' }}>
+                    {known ? `~${fmtEta(eta)}` : 'size unknown'}
+                  </span>
+                </div>
+                <div style={{ color: '#5b6b84', fontSize: 10, marginTop: 2 }}>
+                  {known
+                    ? `${fmt.formatBytes(d.etaRemaining)} of ${fmt.formatBytes(d.etaTotal)} left · ${fmt.formatBytes(d.etaRateBps)}/s ${ETA_BASIS_WORDS[d.etaBasis] || d.etaBasis}`
+                    : 'starts after known-size files'}
+                </div>
+                <div style={{ height: 4, borderRadius: 99, background: '#16253d', marginTop: 5, overflow: 'hidden' }}>
+                  <div
+                    data-testid="dl-smart-bar"
+                    style={{
+                      height: '100%',
+                      width: known && maxEta > 0 ? `${Math.max(4, Math.round((eta / maxEta) * 100))}%` : '100%',
+                      background: known ? '#22d3ee' : 'rgba(34,211,238,0.25)',
+                      ...(known ? {} : { animation: 'indeterminate 1.4s ease-in-out infinite' }),
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ color: '#5b6b84', fontSize: 9.5, marginTop: 6, lineHeight: 1.45 }}>
+            Bars scale to the longest estimated wait. Equal-ETA files batch by destination folder.
+          </div>
+        </div>
+      )}
       {running.map((d) => {
         const queued = d.status === 'queued';
         const paused = d.status === 'paused';
@@ -292,6 +385,11 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                           <span data-testid="dl-eta" data-eta-sec={Math.round(d.etaSeconds)} data-basis={d.etaBasis}>
                             Queued · ETA ~{fmtEta(d.etaSeconds)}{' '}
                             <span style={{ color: '#5b6b84' }}>· {fmt.formatBytes(d.etaRateBps)}/s {ETA_BASIS_WORDS[d.etaBasis] || d.etaBasis}</span>
+                            {d.etaTotal != null && (
+                              <span data-testid="dl-eta-bytes" style={{ color: '#5b6b84' }}>
+                                {' '}· {fmt.formatBytes(d.etaRemaining)} / {fmt.formatBytes(d.etaTotal)} left
+                              </span>
+                            )}
                           </span>
                         ) : (
                           <span data-testid="dl-eta" data-basis="size-unknown">Queued · size unknown — starts after known-size files</span>

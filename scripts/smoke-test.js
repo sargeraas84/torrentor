@@ -1229,9 +1229,13 @@ async function main() {
     assert.strictEqual(cChip.etaRateBps, 1024, 'rate = the limit');
     const readmeBytes = dm.demoPayload('demo:readme').length;
     assert.ok(Math.abs(cChip.etaSeconds - readmeBytes / 1024) < 1e-9, `ETA = remaining ÷ limit (${cChip.etaSeconds}s for ${readmeBytes} B)`);
+    assert.strictEqual(cChip.etaRemaining, readmeBytes, 'remaining = total − received (0 for a fresh queue entry)');
+    assert.strictEqual(cChip.etaTotal, readmeBytes, 'total bytes exposed alongside the ETA');
     const dChip = chipOf(d.id);
     assert.strictEqual(dChip.etaBasis, 'size-unknown', 'unknown size → no estimate, honest basis');
     assert.strictEqual(dChip.etaSeconds, null, 'no ETA while the size is unknown');
+    assert.strictEqual(dChip.etaRemaining, null, 'unknown-size files expose no byte math');
+    assert.strictEqual(dChip.etaTotal, null, 'unknown-size files expose no byte math');
     assert.ok(!('etaBasis' in chipOf(a.id)), 'active chips carry no eta fields');
     dm.setSmartOrder(false);
     assert.ok(!('etaBasis' in chipOf(c.id)), 'eta fields disappear when smart order is off');

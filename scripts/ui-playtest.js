@@ -439,6 +439,29 @@ async function main() {
     6000
   );
   ok('smart order explains each queued chip (ETA + speed basis)', `ETA ~${etaInfo.eta}s · basis ${etaInfo.basis}`);
+  // The same chip also shows the raw byte math behind the estimate: how much
+  // remains of the total size (these demo files are 768 KB each).
+  const bytesInfo = await waitFor(
+    'queued chips show remaining + total bytes alongside the ETA',
+    `(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta-bytes"]'); if (!el) return null; const t = el.textContent; return /left/.test(t) && /KB/.test(t) ? t.trim() : null; })()`,
+    6000
+  );
+  ok('queued chip shows the smart-order math (remaining/total bytes)', bytesInfo);
+  // Tray-header popover: the per-file ETA breakdown for the whole queue,
+  // with one bar per file scaled to its estimated wait.
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-info"]');
+  const popInfo = await waitFor(
+    'smart-order popover lists the queued files with ETA bars',
+    `(() => { const pop = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); if (!pop) return { pop: false }; const rows = pop.querySelectorAll('[data-testid="dl-smart-row"]'); const bars = pop.querySelectorAll('[data-testid="dl-smart-bar"]'); const firstEta = pop.querySelector('[data-testid="dl-smart-row-eta"]'); return { pop: true, rows: rows.length, bars: bars.length, etaText: firstEta ? firstEta.textContent : null, queue: [...rows].map((r) => r.textContent.replace(/\s+/g, ' ').trim().slice(0, 70)) }; })()`,
+    6000
+  );
+  if (!popInfo || !popInfo.pop || popInfo.rows !== 2 || popInfo.bars !== 2 || !/^~\d+s$/.test(popInfo.etaText || '')) {
+    throw new Error(`smart-order popover check failed: ${JSON.stringify(popInfo)}`);
+  }
+  ok('smart-order popover explains the queue (per-file ETA + bars)', `${popInfo.rows} rows with ETA bars`);
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-pop-close"]');
+  await waitFor('popover closes on demand', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
+  ok('smart-order popover closes on demand');
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order toggles back off', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '0'`, 6000);
   await waitFor('eta reasoning clears when smart order turns off', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta"]')`, 6000);
