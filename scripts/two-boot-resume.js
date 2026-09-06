@@ -382,7 +382,7 @@ async function main() {
       check(/NIGHT_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the armed plan with its window active');
       check(/NIGHT_BOOT2_OVERRIDE_RESET/.test(p2.out), 'boot #2 the night override did not persist — the clock window applies again');
       check(/NIGHT_BOOT2_PACED_OK/.test(p2.out), 'boot #2 the restored window is really capping the queue');
-      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window + weekday selector auto-restored; night-mode weekdays persisted; the session override reset to follow the clock; measured pacing ≈ 40 KB/s in boot #2');
+      ok('an armed schedule plan survived a relaunch and kept capping the whole queue', 'boot-night window + weekday selector auto-restored and marked as a boot restore with the boot-#1 apply time; night-mode weekdays persisted; the session override reset to follow the clock; measured pacing ≈ 40 KB/s in boot #2');
     } finally {
       if (server6) server6.close();
       if (dataDir6) {

@@ -31,7 +31,7 @@ Every outbound request runs in the main process and honors your **VPN/proxy rout
 | 🔀 Smart merge | Results are deduped by infohash (duplicates from different sources collapse into one card with an *"also on …"* badge); a watchdog guarantees no engine can hang a search |
 | 🗂 Rich cards | Category, size, seeders/leechers/downloads, age, infohash preview, source badges, **Demo** labeling on synthetic entries; Archive items carry **creator — year** and a poster |
 | 🧲 Magnet actions | Copy magnet · Open in torrent client (OS hand-off) · Copy `.torrent` URL · Download `.torrent` · Open source page — all scheme-validated in main |
-| ⬇️ Direct download | Archive items open an **in-app file picker** and stream the chosen file to disk; Ubuntu/Arch official ISOs download straight from the mirror. Hosts are allowlisted, every redirect hop re-validated, progress lives in a downloads tray — no torrent client needed for file-based sources. Downloads are **resumable**: at most two stream at once (the rest queue FIFO, **reorderable with drag-and-drop or arrows**, or **smart-ordered** — a tray toggle starts the fastest-finishing file first, using known sizes, your speed limits, and each file's **own measured speed**, which the queue learns as streams progress and re-ranks on the fly; equal-ETA files batch by destination folder, and every queued chip shows the ETA and the speed basis — limit / measured / live network — behind it), an interrupted file continues from its partial via HTTP Range, a **user pause survives a restart** (it parks, never auto-resumes), the save dialog **remembers your folder** (per-source defaults too), and finished transfers offer **reveal in folder**. Tray chips say which folder rule landed each file, and the Library views show **per-source download tallies with all-time / this-week / this-month windows** and a **Copy CSV** button that exports the selected period to the clipboard. **Queue plans** bottle the whole pacing setup: a what-if preview re-ranks hypothetical per-file and **per-folder** limits before you apply them, the applied patch saves as a **named plan** (folder rules keep covering files queued into that folder later), a plan can carry an **active-window schedule** that caps the entire queue at set hours (a "night" plan throttling to 100 KB/s between 23:00 and 07:00), and the applied plan's name rides every tray chip with **one-click switching from the tray header** — an armed plan even **survives a relaunch**. Standalone **night mode** in Settings applies the same clock-window cap to every download with no plan at all, its active state shows in the tray header, and both kinds of window can be restricted to **specific weekdays** (a Mon–Fri "night" plan) — with one-click **presets** (Weekdays / Weekends / Every day) next to the manual day toggles. The tray's night pill is a **one-click session override** — click it to force the cap on or off for this session without opening Settings (the clock window returns next launch; the override never survives a restart) — and whenever a plan window or night cap is what's actually binding a transfer, hovering the chip shows the full **effective-speed breakdown**: own limit vs plan window vs night cap, and which one wins. If the applied plan's window and night mode are **both active at once with different caps**, the tray warns about the overlap and names which tighter cap actually wins. Demo cards exercise the whole flow **offline** with clearly-labeled sample files |
+| ⬇️ Direct download | Archive items open an **in-app file picker** and stream the chosen file to disk; Ubuntu/Arch official ISOs download straight from the mirror. Hosts are allowlisted, every redirect hop re-validated, progress lives in a downloads tray — no torrent client needed for file-based sources. Downloads are **resumable**: at most two stream at once (the rest queue FIFO, **reorderable with drag-and-drop or arrows**, or **smart-ordered** — a tray toggle starts the fastest-finishing file first, using known sizes, your speed limits, and each file's **own measured speed**, which the queue learns as streams progress and re-ranks on the fly; equal-ETA files batch by destination folder, and every queued chip shows the ETA and the speed basis — limit / measured / live network — behind it), an interrupted file continues from its partial via HTTP Range, a **user pause survives a restart** (it parks, never auto-resumes), the save dialog **remembers your folder** (per-source defaults too), and finished transfers offer **reveal in folder**. Tray chips say which folder rule landed each file, and the Library views show **per-source download tallies with all-time / this-week / this-month windows** and a **Copy CSV** button that exports the selected period to the clipboard. **Queue plans** bottle the whole pacing setup: a what-if preview re-ranks hypothetical per-file and **per-folder** limits before you apply them, the applied patch saves as a **named plan** (folder rules keep covering files queued into that folder later), a plan can carry an **active-window schedule** that caps the entire queue at set hours (a "night" plan throttling to 100 KB/s between 23:00 and 07:00), and the applied plan's name rides every tray chip with **one-click switching from the tray header** — an armed plan even **survives a relaunch**. Standalone **night mode** in Settings applies the same clock-window cap to every download with no plan at all, its active state shows in the tray header, and both kinds of window can be restricted to **specific weekdays** (a Mon–Fri "night" plan) — with one-click **presets** (Weekdays / Weekends / Every day) next to the manual day toggles. The tray's night pill is a **one-click session override** — click it to force the cap on or off for this session without opening Settings (the clock window returns next launch; the override never survives a restart) — and whenever a plan window or night cap is what's actually binding a transfer, hovering the chip shows the full **effective-speed breakdown**: own limit vs plan window vs night cap, and which one wins. If the applied plan's window and night mode are **both active at once with different caps**, the tray warns about the overlap, names which tighter cap actually wins, and **clicking the warning jumps straight into the what-if popover** to reconcile them. A schedule-only plan's row has an **"apply this schedule now"** button that starts (or stops) its window on demand — a per-plan session force like the night pill, so a 23:00–07:00 plan is testable at noon — and the tray popover notes **where the applied plan came from**: "applied 11:52" for a live apply versus "restored at boot · last applied …" when a relaunch re-armed it. Demo cards exercise the whole flow **offline** with clearly-labeled sample files |
 | 🛡 VPN / proxy route | Route **every** search request through your own VPN/proxy (HTTP, SOCKS4/5, auth supported) with a one-click **Check my IP** verification (settings → VPN & privacy) |
 | 🩺 Source health | Settings → Search sources probes every real source with a known-good query and shows healthy / failing per engine — silent regressions (site redesigns that return 0 results) appear as red dots, not green chips |
 | 🔖 Local library | Favorites + recent searches stored as plain JSON in the app-data folder. No account, no cloud, no telemetry |
@@ -114,7 +114,7 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 90 pure-Node checks (no window, no network)
+npm test           # 91 pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   a genuine download, quits mid-flight, relaunches, and
@@ -128,20 +128,23 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   window keeps capping the whole queue in boot #2
                     #   (measured pacing) — and the night-pill session
                     #   override resets to follow the clock again in boot #2
-npm run test:ui    # 71-step real-window playtest (real engines): search,
+npm run test:ui    # 76-step real-window playtest (real engines): search,
                     #   favorites, VPN check, paging, thumbnails, paced demo
                     #   (paused & resumed, queue reordered by drag-and-drop
                     #   + smart order with per-chip ETA/bytes + a popover
                     #   that previews limits (per-file and per-folder
                     #   steppers), saves named queue plans — including one
                     #   with an active-window schedule (weekday-restricted,
-                    #   via the one-click presets) — applies it and
-                    #   switches/clears it from the tray header), Settings
+                    #   via the one-click presets) — applies it, forces its
+                    #   window on/off with the row's "apply this schedule
+                    #   now" button, notes the applied plan's provenance,
+                    #   and switches/clears it from the tray header), Settings
                     #   night mode (weekday presets), a one-click night-pill
                     #   session override, chip tooltips that break down own
-                    #   limit vs plan window vs night cap, a tray warning
-                    #   when the plan window and night mode overlap at
-                    #   different caps, per-source save folder, and a real
+                    #   limit vs plan window vs night cap, a clickable tray
+                    #   warning when the plan window and night mode overlap
+                    #   at different caps (opens the what-if popover
+                    #   pre-selected), per-source save folder, and a real
                     #   Archive direct download — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
@@ -162,7 +165,7 @@ attached. Verify the four artifacts, then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash
-git tag v1.4.7 && git push origin v1.4.7
+git tag v1.4.8 && git push origin v1.4.8
 ```
 
 **Site deploys:** pushing to `master` also republishes `site/` to the `gh-pages`

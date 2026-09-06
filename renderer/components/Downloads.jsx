@@ -220,7 +220,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode, onNightToggle }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode, onNightToggle, onPlanForce }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -386,11 +386,45 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   };
   const togglePlanDay = (v) => setPlanSchedule((s) => (s ? { ...s, days: toggleDays(s.days, v) } : s));
   const applyPlanDayPreset = (days) => setPlanSchedule((s) => (s ? { ...s, days: days ? days.slice() : undefined } : s));
-  const reapplyPlan = async (name) => {
-    if (onReapplyPlan) await onReapplyPlan(name);
+  const reapplyPlan = async (name, force) => {
+    if (onReapplyPlan) await onReapplyPlan(name, force);
   };
   const deletePlan = async (name) => {
     if (onDeletePlan) await onDeletePlan(name);
+  };
+  // 'Apply this schedule now': force the armed plan's window on/off for this
+  // session regardless of the clock (per-plan sibling of the night pill).
+  // Clicking a NOT-applied schedule plan applies it with the window forced
+  // on; clicking the applied plan's toggle flips force on ⇄ off (auto —
+  // follow the clock — returns on the next apply/relaunch).
+  const rowForceState = (name) => {
+    if (appliedName !== name || !appliedPlan) return 'unapplied';
+    return appliedPlan.force === true ? 'on' : appliedPlan.force === false ? 'off' : 'auto';
+  };
+  const stepRowForce = async (name) => {
+    if (appliedName !== name) {
+      await reapplyPlan(name, true); // arm + start its window now
+      return;
+    }
+    const cur = appliedPlan && appliedPlan.force;
+    await onPlanForce(cur === true ? false : true); // auto→on→off→on (session)
+  };
+  // Provenance of the applied plan for the popover note: was it applied in
+  // this session, or re-armed from prefs at boot (and when was it applied)?
+  const fmtClock = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+  const appliedNoteText =
+    appliedPlan && appliedPlan.name
+      ? appliedPlan.restored
+        ? `restored at boot${appliedPlan.appliedAt ? ` · last applied ${fmtClock(appliedPlan.appliedAt)}` : ''}`
+        : `applied ${appliedPlan.appliedAt ? fmtClock(appliedPlan.appliedAt) : 'just now'}`
+      : '';
+  // The overlap warning doubles as a shortcut: clicking opens the what-if
+  // popover (when it can render) so the plan can be cleared/switched there.
+  const openOverlapPopover = () => {
+    if (smartOrder && queuedItems.length > 0) {
+      setShowQueueInfo(true);
+      setWhatIf(true);
+    }
   };
   // Hypothetical limit shown on a what-if row/folder stepper: the preview
   // patch wins, else the row's own (preview rows carry `limit`; live rows
@@ -515,7 +549,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         )}
       </div>
       {(planNames.length > 0 || appliedName) && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+        <div key="row-plan-switch" style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
           <div
             data-testid="dl-plan-switch-box"
             data-active={appliedName || ''}
@@ -571,7 +605,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         </div>
       )}
       {nightSched && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+        <div key="row-night" style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
           <button
             type="button"
             data-testid="dl-night"
@@ -613,17 +647,21 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         </div>
       )}
       {capOverlap && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
-          <div
+        <div key="row-cap-overlap" style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+          <button
+            type="button"
             data-testid="dl-cap-overlap"
             data-plan-cap={overlapPlanCap}
             data-night-cap={overlapNightCap}
             data-wins={overlapWinner}
             title={
-              overlapWinner === 'plan'
+              (overlapWinner === 'plan'
                 ? `The applied plan “${appliedName}” caps the queue at ${fmt.formatBytes(overlapPlanCap)}/s — tighter than night mode's ${fmt.formatBytes(overlapNightCap)}/s, so it wins while both windows are active`
-                : `Night mode caps the queue at ${fmt.formatBytes(overlapNightCap)}/s — tighter than the applied plan's ${fmt.formatBytes(overlapPlanCap)}/s, so it wins while both windows are active`
+                : `Night mode caps the queue at ${fmt.formatBytes(overlapNightCap)}/s — tighter than the applied plan's ${fmt.formatBytes(overlapPlanCap)}/s, so it wins while both windows are active`) +
+              (smartOrder && queuedItems.length > 0 ? ' — click to open the what-if popover and reconcile the caps here' : '')
             }
+            className="app-nodrag"
+            onClick={openOverlapPopover}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -634,6 +672,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               fontSize: 10,
               fontWeight: 650,
               whiteSpace: 'nowrap',
+              cursor: smartOrder && queuedItems.length > 0 ? 'pointer' : 'default',
               background: 'rgba(251,113,133,0.10)',
               border: '1px solid #fb718555',
               color: '#fda4af',
@@ -643,11 +682,12 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
             {overlapWinner === 'plan'
               ? `plan “${appliedName}” ${fmt.formatBytes(overlapPlanCap)}/s wins over night ${fmt.formatBytes(overlapNightCap)}/s`
               : `night mode ${fmt.formatBytes(overlapNightCap)}/s wins over plan's ${fmt.formatBytes(overlapPlanCap)}/s`}
-          </div>
+          </button>
         </div>
       )}
       {showQueueInfo && smartOrder && queuedItems.length > 0 && (
         <div
+          key="smart-pop"
           data-testid="dl-smart-pop"
           style={{
             position: 'absolute',
@@ -868,6 +908,12 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                               {schedText}
                             </span>
                           )}
+                          {appliedName === name && appliedNoteText && (
+                            <span data-testid="dl-plan-applied-note" style={{ display: 'block', color: '#8494ab', fontSize: 8.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {appliedNoteText}
+                              {appliedPlan && appliedPlan.force === true ? ' · window forced ON' : appliedPlan && appliedPlan.force === false ? ' · window forced OFF' : ''}
+                            </span>
+                          )}
                         </span>
                         <span style={{ color: '#5b6b84', fontSize: 9.5, flexShrink: 0 }}>{planFileCount(name)} files</span>
                         <button
@@ -881,6 +927,27 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                         >
                           <I.refresh size={10} /> Apply
                         </button>
+                        {rec.schedule && (
+                          <button
+                            type="button"
+                            data-testid="dl-plan-force"
+                            data-name={name}
+                            data-force={rowForceState(name)}
+                            className="tooltip app-nodrag"
+                            data-tip={
+                              rowForceState(name) === 'on'
+                                ? 'Window forced ON — its cap binds right now regardless of the clock (click to stop)'
+                                : rowForceState(name) === 'off'
+                                  ? 'Window forced OFF — suppressed even inside its hours (click to start)'
+                                  : 'Start this plan\'s window right now — its cap binds regardless of the clock (a session force, like the night pill)'
+                            }
+                            style={{ ...applyBtn, height: 20, padding: '0 6px', fontSize: 9, ...(rowForceState(name) !== 'unapplied' ? { borderColor: '#f5d78e66', color: '#f5d78e' } : {}) }}
+                            onClick={() => stepRowForce(name)}
+                          >
+                            <I.moon size={9} />
+                            {rowForceState(name) === 'on' ? 'Stop window' : rowForceState(name) === 'off' ? 'Start window' : 'Start now'}
+                          </button>
+                        )}
                         <button type="button" data-testid="dl-plan-delete" data-name={name} aria-label="Delete plan" style={miniBtn} onClick={() => deletePlan(name)}>
                           <I.close size={12} />
                         </button>
@@ -1127,6 +1194,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
 
       {pausedItems.length > 0 && (
         <div
+          key="row-paused"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1214,7 +1282,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
       })}
 
       {finished.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
+        <div key="row-finished" style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
           <button type="button" className="app-nodrag" style={clearBtn} onClick={onClear}>
             Clear finished
           </button>

@@ -1543,6 +1543,59 @@ async function main() {
     dm.setSmartOrder(false);
   });
 
+  ok('plan window force + applied-plan provenance', async () => {
+    // A past window (now−3h → now−2h) is guaranteed inactive, so clock-follow
+    // vs session-force is deterministic no matter when the suite runs.
+    const pad = (n) => String(n).padStart(2, '0');
+    const hmOf = (ms) => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`;
+    const pastFrom = hmOf(Date.now() - 3 * 3600e3);
+    const pastTo = hmOf(Date.now() - 2 * 3600e3);
+    // A fresh arm follows the clock: past window inactive, no force, and the
+    // provenance fields start blank.
+    dm.clearActivePlan();
+    dm.setActivePlan('p', { from: pastFrom, to: pastTo, bytesPerSec: 51200 });
+    let info = dm.appliedPlanInfo();
+    assert.strictEqual(info.name, 'p');
+    assert.strictEqual(info.force, null, 'fresh arm starts with no force');
+    assert.strictEqual(info.windowActive, false, 'past window inactive under clock-following');
+    assert.strictEqual(info.restored, false);
+    assert.strictEqual(info.appliedAt, null);
+    // Force ON: the window binds right now regardless of the clock.
+    info = dm.setPlanForce(true);
+    assert.strictEqual(info.force, true);
+    assert.strictEqual(info.windowActive, true, 'force on → cap applies outside the window');
+    assert.strictEqual(info.capNow, 51200);
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 51200, 'a forced window caps transfers');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 25600 }), 25600, 'own lower limit still wins under force');
+    // Force OFF suppresses even a whole-day window; a re-arm resets the force.
+    dm.setActivePlan('p', { from: '00:00', to: '00:00', bytesPerSec: 51200 });
+    assert.strictEqual(dm.appliedPlanInfo().force, null, 're-arming resets the session force');
+    assert.strictEqual(dm.appliedPlanInfo().windowActive, true, 'whole-day window is active on its own');
+    info = dm.setPlanForce(false);
+    assert.strictEqual(info.force, false);
+    assert.strictEqual(info.windowActive, false, 'force off suppresses even a whole-day window');
+    assert.strictEqual(dm.effectiveLimitBps({ maxBytesPerSec: 262144 }), 262144, 'no plan cap under force off');
+    // Null force returns to the clock.
+    info = dm.setPlanForce(null);
+    assert.strictEqual(info.force, null);
+    assert.strictEqual(info.windowActive, true, 'null force follows the clock (whole-day window active)');
+    // Provenance: a boot restore records restored + the last explicit apply
+    // time; clearing the arm wipes both.
+    dm.setActivePlan('p', { from: pastFrom, to: pastTo, bytesPerSec: 51200 });
+    dm.noteAppliedPlan({ restored: true, appliedAt: '2026-09-05T10:00:00.000Z' });
+    info = dm.appliedPlanInfo();
+    assert.strictEqual(info.restored, true, 'provenance notes a boot restore');
+    assert.strictEqual(info.appliedAt, '2026-09-05T10:00:00.000Z');
+    info = dm.setPlanForce(true);
+    assert.strictEqual(info.restored, true, 'force does not disturb provenance');
+    dm.clearActivePlan();
+    info = dm.appliedPlanInfo();
+    assert.strictEqual(info.name, '');
+    assert.strictEqual(info.restored, false, 'clearing the arm resets provenance');
+    assert.strictEqual(info.appliedAt, null);
+    assert.strictEqual(info.force, null);
+  });
+
   ok('scheduler: resumableSnapshot preserves queue order across a restart', async () => {
     dm.clearFinished();
     const mk = (n) => path.join(dmDir, `order-${n}.txt`);

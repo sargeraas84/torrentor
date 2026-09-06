@@ -421,6 +421,9 @@ async function phaseNightStart(win) {
   const res = await js(`window.torrentor.applyQueuePlan('boot-night')`);
   const info = res && res.appliedPlan;
   if (!info || info.name !== 'boot-night' || !info.windowActive) throw new Error(`boot#1 did not arm the active plan: ${JSON.stringify(info)}`);
+  // A fresh apply carries provenance: not a boot restore, with an apply time
+  // that boot #2 must surface after the auto-restore.
+  if (info.restored !== false || !info.appliedAt) throw new Error(`boot#1 apply provenance missing: ${JSON.stringify(info)}`);
   // ALSO enable Settings night mode with its own weekday selector: same
   // window bracket but a LOOSER cap (100 KB/s), so the plan's 40 KB/s still
   // binds and the boot-#2 pacing measurement stays clean — while proving
@@ -464,6 +467,9 @@ async function phaseNightVerify(win) {
   if (!nmPref2 || !nmPref2.days || nmPref2.days.join(',') !== String(today)) throw new Error(`boot#2 night-mode weekday selector lost: ${JSON.stringify(nmPref2)}`);
   const nmLive = await js(`window.torrentor.getGlobalSchedule()`);
   if (!nmLive || !nmLive.windowActive || !nmLive.schedule || !nmLive.schedule.days) throw new Error(`boot#2 night mode not live with weekdays: ${JSON.stringify(nmLive)}`);
+  // The restored arm must say RESTORED (not applied this session) and keep
+  // the apply timestamp from boot #1 — the tray note's provenance.
+  if (info.restored !== true || !info.appliedAt) throw new Error(`boot#2 arm not marked as restored with appliedAt: ${JSON.stringify(info)}`);
   // The override forced off in boot #1 must be GONE: boot #2 is back to
   // following the clock window (override null, window active again because
   // it still brackets now). If the session override leaked into prefs, the

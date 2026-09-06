@@ -89,7 +89,12 @@ async function bootstrap() {
   downloads.setGlobalSchedule(normalizeSchedule(storage.getPrefs().nightMode));
   downloads.setNightOverride(null); // session override resets on every boot
   const appliedAtBoot = storage.getPrefs().appliedQueuePlan;
-  if (appliedAtBoot && appliedAtBoot.name) downloads.setActivePlan(String(appliedAtBoot.name), normalizeSchedule(appliedAtBoot.schedule));
+  if (appliedAtBoot && appliedAtBoot.name) {
+    downloads.setActivePlan(String(appliedAtBoot.name), normalizeSchedule(appliedAtBoot.schedule));
+    // This arm came from the persisted record, not a fresh apply — the tray
+    // note says so (the session force also resets, exactly like night mode).
+    downloads.noteAppliedPlan({ restored: true, appliedAt: appliedAtBoot.appliedAt || null });
+  }
 
   // Auto-resume interrupted downloads: transfers that were in flight when
   // the app last quit were persisted (url + approved destination). They
@@ -579,7 +584,7 @@ function registerIpc() {
 
   handle('queuePlans:list', () => storage.getPrefs().queuePlans || {});
 
-  handle('queuePlans:apply', ({ name }) => {
+  handle('queuePlans:apply', ({ name, force }) => {
     const key = String(name || '').trim();
     const plans = storage.getPrefs().queuePlans || {};
     const rec = planRecord(plans[key]);
@@ -588,13 +593,29 @@ function registerIpc() {
     if (!rec) throw new Error('No such plan.');
     // Arming the plan first surfaces its name (tray badge) and enforces
     // any schedule window on the whole queue; then the per-file limits
-    // land for real (folder rules cover files queued later too).
+    // land for real (folder rules cover files queued later too). A caller
+    // may pass force=true/false to start/stop the plan's window RIGHT NOW
+    // regardless of the clock (the 'apply this schedule now' button).
     downloads.setActivePlan(key, rec.schedule);
+    if (force === true || force === false) downloads.setPlanForce(force);
     const applied = downloads.applyPlanEntries(rec.entries, (entry, kind) => broadcastDownloads(kind, entry.id));
     // Remember the armed plan so the next launch restores it (name badge +
-    // any schedule window) exactly as the user left it.
-    storage.updatePrefs({ appliedQueuePlan: { name: key, schedule: rec.schedule } });
+    // any schedule window) exactly as the user left it — along with when it
+    // was applied, so the tray can say 'applied at …' vs 'restored at boot'.
+    const nowIso = new Date().toISOString();
+    downloads.noteAppliedPlan({ restored: false, appliedAt: nowIso });
+    storage.updatePrefs({ appliedQueuePlan: { name: key, schedule: rec.schedule, appliedAt: nowIso } });
+    broadcastDownloads('plan', null); // arm + provenance reach every window
     return { applied, appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };
+  });
+
+  // Session-only force on the ARMED plan's window (per-plan sibling of the
+  // night pill): true = window active now regardless of the clock, false =
+  // suppressed regardless, null = follow the window again. Not persisted.
+  handle('queuePlans:setForce', ({ force }) => {
+    const info = downloads.setPlanForce(force === true ? true : force === false ? false : null);
+    broadcastDownloads('plan', null);
+    return info;
   });
 
   handle('queuePlans:delete', ({ name }) => {
@@ -614,6 +635,7 @@ function registerIpc() {
 
   handle('queuePlans:clearApplied', () => {
     downloads.clearActivePlan();
+    downloads.noteAppliedPlan(); // provenance resets with the arm
     storage.updatePrefs({ appliedQueuePlan: null });
     broadcastDownloads('plan', null);
     return { appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };

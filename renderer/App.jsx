@@ -165,13 +165,24 @@ function App() {
       showToast(`Plan save failed — ${(err && err.message) || 'unknown error'}`);
     }
   };
-  const reapplyPlan = async (name) => {
+  const reapplyPlan = async (name, force) => {
     try {
-      const res = await api.applyQueuePlan(name);
+      const res = await api.applyQueuePlan(name, force === true || force === false ? force : undefined);
       if (res && res.snapshot) setDownloads(res.snapshot);
       if (res && res.appliedPlan) setAppliedPlan(res.appliedPlan);
     } catch (err) {
       showToast(`Plan apply failed — ${(err && err.message) || 'unknown error'}`);
+    }
+  };
+  // Session-only force on the ARMED plan's window ('apply this schedule
+  // now'): true = window active regardless of the clock, false = suppressed,
+  // null = follow the clock again.
+  const setPlanForce = async (force) => {
+    try {
+      const info = await api.setQueuePlanForce(force === true || force === false ? force : null);
+      if (info) setAppliedPlan(info);
+    } catch {
+      /* non-fatal */
     }
   };
   const clearAppliedPlan = async () => {
@@ -774,7 +785,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} onNightToggle={toggleNight} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} onNightToggle={toggleNight} onPlanForce={setPlanForce} />
 
       {settingsOpen && (
         <SettingsModal

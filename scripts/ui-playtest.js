@@ -61,12 +61,23 @@ async function main() {
   async function waitFor(desc, code, timeoutMs = 15000) {
     const t0 = Date.now();
     let last = null;
+    let lastErr = null;
     while (Date.now() - t0 < timeoutMs) {
-      last = await js(code);
+      try {
+        last = await js(code);
+      } catch (e) {
+        // A polled expression can throw when the DOM swaps mid-poll (e.g. a
+        // chip unmounting between two querySelector calls). Treat that as a
+        // retry — only a persistent error should fail the step, and it still
+        // does, via lastErr in the timeout message below.
+        lastErr = String((e && e.message) || e).slice(0, 300);
+        last = null;
+      }
       if (last) return last;
       await wait(200);
     }
-    throw new Error(`Timed out waiting for: ${desc} (last=${JSON.stringify(last).slice(0, 200)})`);
+    const suffix = lastErr ? ` lastErr=${lastErr}` : '';
+    throw new Error(`Timed out waiting for: ${desc} (last=${JSON.stringify(last).slice(0, 200)}${suffix})`);
   }
 
   const setText = (sel, value) =>
@@ -481,6 +492,30 @@ async function main() {
   const overlapRow = await waitFor('tray warns the plan window and night mode overlap', `(() => { const o = document.querySelector('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]'); return o && o.getAttribute('data-plan-cap') === '40960' && o.getAttribute('data-night-cap') === '102400' && o.getAttribute('data-wins') === 'plan' && o.textContent.includes('wins over night') ? { wins: o.getAttribute('data-wins'), text: o.textContent.split(String.fromCharCode(10)).join(' ').trim() } : null; })()`, 8000);
   if (!overlapRow) throw new Error('cap-overlap warning did not render');
   ok('plan window + night mode overlap is surfaced in the tray', overlapRow.text);
+  // The overlap pill is CLICKABLE: with smart order on and a queued file it
+  // opens the what-if popover pre-selected, so the caps can be reconciled
+  // right there. Seed a queue (smart order off now), then click the pill.
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
+  await waitFor('smart order enabled for the overlap-click probe', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]'); return b && b.getAttribute('data-on') === '1'; })()`, 6000);
+  const ovIds = await js(`(async () => { const rs = await Promise.all(['demo:ov0', 'demo:ov1', 'demo:ov2'].map((u) => window.torrentor.downloadFile(u))); return rs.map((r) => r && r.transfer && r.transfer.id).filter(Boolean); })()`);
+  if (!ovIds || ovIds.length < 3) throw new Error('overlap-click seed transfers did not start');
+  await waitFor('a queued transfer exists to anchor the popover', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length >= 1`, 10000);
+  await click('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]');
+  const ovPop = await waitFor('overlap pill click opens the what-if popover pre-selected', `(() => { const pop = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); const tg = pop && pop.querySelector('[data-testid="dl-whatif-toggle"]'); return pop && tg && tg.textContent.includes('Live order') ? true : null; })()`, 6000);
+  if (!ovPop) throw new Error('overlap click did not open the what-if popover');
+  ok('overlap warning click opens the what-if popover pre-selected');
+  // Exit what-if mode BEFORE closing — the popover REMEMBERS it across
+  // open/close, and a leaked what-if state would flip later blocks' own
+  // toggle clicks (they assume the live order).
+  await click('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]');
+  await waitFor('drill-down returns to the live order before closing', `(() => { const tg = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return tg && tg.textContent.includes('What if') ? true : null; })()`, 6000);
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-pop-close"]');
+  await waitFor('popover closes after the overlap drill-down', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
+  await js(`Promise.all(${JSON.stringify(ovIds)}.map((id) => window.torrentor.cancelDownload(id)))`);
+  await waitFor('overlap probe downloads settle before the next block', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"]')].some((c) => { const id = Number(c.getAttribute('data-id')); const s = c.getAttribute('data-status'); return (s === 'downloading' || s === 'queued') && ${JSON.stringify(ovIds)}.indexOf(id) >= 0; })`, 10000);
+  await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
+  await waitFor('smart order restored to off after the overlap probe', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]'); return b && b.getAttribute('data-on') === '0'; })()`, 6000);
+  ok('overlap drill-down cleaned up (smart order off, probe transfers cancelled)');
   await js(`(() => { const el = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch"]'); if (!el) return false; el.value = '__clear'; el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
   await waitFor('clearing the applied plan dismisses the overlap warning', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]')`, 8000);
   ok('overlap warning clears with the applied plan');
@@ -510,6 +545,18 @@ async function main() {
       return Promise.all(['demo:content', 'demo:content2', 'demo:content3', 'demo:content4'].map((u) => window.torrentor.downloadFile(u)));
     })()`);
   await waitFor('two demo transfers queue behind the paced actives', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length === 2`, 10000);
+  // Drain-race guard: at the 100 KB/s default each active finishes its
+  // 768 KB payload in ~7.6 s, which can promote a queued file (and drop a
+  // popover row) while the what-if sequence below is still running. Drop
+  // the two ACTIVE chips to 25 KB/s so they outlive the whole block; the
+  // two queued files keep the default 100 KB/s, so every ETA/basis
+  // assertion below is unchanged.
+  await js(`(async () => {
+      const actives = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="downloading"]')].map((c) => Number(c.getAttribute('data-id')));
+      await Promise.all(actives.map((id) => window.torrentor.setDownloadLimit(id, 25600)));
+      return actives.length;
+    })()`);
+  await waitFor('actives paced down to 25 KB/s for the block', `(() => { const b = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="downloading"] [data-testid="dl-limit"]')].every((x) => x.getAttribute('data-limit') === '25600'); return b ? true : null; })()`, 6000);
   const orderBefore = await js(`[...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]')].map((c) => Number(c.getAttribute('data-id')))`);
   if (orderBefore.length !== 2) throw new Error(`Expected 2 queued chips for the drag, got ${orderBefore.length}`);
   const dragSim = await js(`(() => {
@@ -577,8 +624,13 @@ async function main() {
   // folder-wide stepper appears: cycling it sets BOTH rows at once.
   const popIds = await js(`[...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-smart-row"]')].map((r) => Number(r.getAttribute('data-id')))`);
   if (popIds.length !== 2) throw new Error(`Expected 2 popover rows for what-if, got ${popIds.length}`);
+  // Normalize: the popover REMEMBERS what-if mode across open/close, so if
+  // an earlier block left it on, the toggle click below would flip it OFF.
+  // Return it to the live order first, then enter what-if fresh.
+  await js(`(() => { const t = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); if (t && t.textContent.includes('Live order')) { t.click(); return 'reset'; } return 'clean'; })()`);
+  await waitFor('what-if mode normalized to live order', `(() => { const t = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return t && t.textContent.includes('What if') ? true : null; })()`, 6000);
   await click('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]');
-  await waitFor('what-if steppers appear on every preview row', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 2`, 6000);
+  await waitFor('what-if steppers appear on every preview row', `(() => { const pop = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); const steps = document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length; if (steps === 2) return true; const tg = pop && pop.querySelector('[data-testid="dl-whatif-toggle"]'); return { steps, popOpen: !!pop, toggleText: tg ? tg.textContent.trim() : null, rows: pop ? pop.querySelectorAll('[data-testid="dl-smart-row"]').length : -1, trayLen: (() => { const t = document.querySelector('[data-testid="download-tray"]'); return t ? t.innerHTML.length : 0; })() }; })()`, 8000);
   const folderDir = await waitFor(
     'folder stepper appears for the shared destination folder',
     `(() => { const f = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-folder"]'); return f ? f.getAttribute('data-dir') : null; })()`,
@@ -690,6 +742,23 @@ async function main() {
   );
   if (!chipTag) throw new Error('applied-plan chip tag missing');
   ok('applied plan tag renders on tray chips', `plan ${chipTag.name} (window-active=${chipTag.window})`);
+  // 'night-cap' is a 23:00–07:00 schedule-only plan — outside its hours (as
+  // this suite usually runs) its window is dormant, so its row's force
+  // button is the way to START it now regardless of the clock.
+  const forceBtnSel = '[data-testid="download-tray"] [data-testid="dl-plan-force"][data-name="night-cap"]';
+  await waitFor('schedule plan row exposes a Start-now force button', `(() => { const b = document.querySelector('${forceBtnSel}'); return b && b.getAttribute('data-force') === 'auto' ? true : null; })()`, 6000);
+  await click(forceBtnSel);
+  await waitFor('Start-now forces the dormant window ON', `(() => { const b = document.querySelector('${forceBtnSel}'); const tag = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"] [data-testid="dl-chip-plan"]'); return b && b.getAttribute('data-force') === 'on' && b.textContent.includes('Stop window') && tag && tag.getAttribute('data-window') === '1' ? { force: b.getAttribute('data-force') } : null; })()`, 6000);
+  const forceOnNote = await js(`(() => { const n = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-applied-note"]'); return n ? n.textContent.trim() : null; })()`);
+  if (!forceOnNote || !forceOnNote.includes('applied') || !forceOnNote.includes('window forced ON')) defect('applied-plan note shows the forced window + apply time', String(forceOnNote));
+  else  ok('plan row note shows a fresh apply with the window forced ON', forceOnNote);
+  await click(forceBtnSel);
+  await waitFor('second click stops the window (forced OFF)',  `(() => { const b = document.querySelector('${forceBtnSel}'); const tag = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"] [data-testid="dl-chip-plan"]'); return b && b.getAttribute('data-force') === 'off' && b.textContent.includes('Start window') && tag && tag.getAttribute('data-window') === '0' ? true : null; })()`, 6000);
+  ok('force button stops the plan window regardless of the clock');
+  // A plain Apply returns the window to clock-following (force auto).
+  await click('[data-testid="download-tray"] [data-testid="dl-plan-reapply"][data-name="night-cap"]');
+  await waitFor('plain Apply returns the window to clock-following', `(() => { const b = document.querySelector('${forceBtnSel}'); return b && b.getAttribute('data-force') === 'auto' ? true : null; })()`, 6000);
+  ok('plain Apply clears the session force (window follows the clock again)');
   await click('[data-testid="download-tray"] [data-testid="dl-plan-delete"][data-name="fast-track"]');
   await waitFor('plan deleted from the list', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-row"]')].some((r) => r.getAttribute('data-name') === 'fast-track')`, 6000);
   ok('queue plan deleted on demand');
