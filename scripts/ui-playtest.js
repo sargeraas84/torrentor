@@ -511,6 +511,20 @@ async function main() {
   const ovIds = await js(`(async () => { const rs = await Promise.all(['demo:ov0', 'demo:ov1', 'demo:ov2'].map((u) => window.torrentor.downloadFile(u))); return rs.map((r) => r && r.transfer && r.transfer.id).filter(Boolean); })()`);
   if (!ovIds || ovIds.length < 3) throw new Error('overlap-click seed transfers did not start');
   await waitFor('a queued transfer exists to anchor the popover', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length >= 1`, 10000);
+  // First-use keyboard hint: smart order is on with a queued file for the
+  // first time in this fresh run, so the one-time hint teaches the tray
+  // hotkeys. Its × retires it permanently (persisted prefs flag).
+  const kbHintText = await waitFor(
+    'first-use keyboard hint teaches the tray hotkeys',
+    `(() => { const h = document.querySelector('[data-testid="download-tray"] [data-testid="dl-kb-hint"]'); if (!h) return null; const b = h.querySelector('[data-testid="dl-kb-hint-dismiss"]'); const t = (h.textContent || '').trim(); return b && t.indexOf('i/q popover') >= 0 && t.indexOf('what-if') >= 0 && t.indexOf('switcher') >= 0 ? t : null; })()`,
+    6000
+  );
+  ok('first-use keyboard-shortcuts hint appears once (teaches i/q, what-if, switcher keys)', kbHintText);
+  await click('[data-testid="download-tray"] [data-testid="dl-kb-hint-dismiss"]');
+  await waitFor('dismissing the hint removes it from the tray', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-kb-hint"]')`, 6000);
+  const kbSeen = await js(`window.torrentor.getState().then((s) => !!(s.prefs && s.prefs.queueKbHintSeen))`);
+  if (!kbSeen) defect('keyboard hint seen-flag persisted', 'queueKbHintSeen pref not set');
+  else ok('keyboard hint is one-time — the seen flag persisted on dismiss');
   await click('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]');
   const ovPop = await waitFor('overlap pill click opens the what-if popover pre-selected', `(() => { const pop = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); const tg = pop && pop.querySelector('[data-testid="dl-whatif-toggle"]'); return pop && tg && tg.textContent.includes('Live order') ? true : null; })()`, 6000);
   if (!ovPop) throw new Error('overlap click did not open the what-if popover');
@@ -591,6 +605,12 @@ async function main() {
   // re-sorts queued files by estimated finish time) through the tray.
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order toggles on', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '1'`, 6000);
+  // The hint was dismissed for good earlier in this run — turning smart
+  // order on again must NOT bring it back (once-only, persisted).
+  const hintAgain = await js(`(() => { const h = document.querySelector('[data-testid="download-tray"] [data-testid="dl-kb-hint"]'); const s = !!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]'); return { hint: !!h, tray: s }; })()`);
+  if (!hintAgain.tray) throw new Error('tray vanished during the hint check');
+  if (hintAgain.hint) defect('one-time hint did not reappear', 'hint rendered again on a later smart-order session');
+  else ok('one-time keyboard hint stays retired across later smart-order sessions');
   // With smart order on, each queued chip explains its position: the ETA
   // and the speed basis behind it (these queued files inherited the
   // 100 KB/s default limit, so the basis is 'limit').
@@ -823,6 +843,52 @@ async function main() {
   await keyOnFocused('Escape');
   await waitFor('keyboard Escape closes the popover', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
   ok('keyboard Escape closes the smart-order popover');
+  // ---- focus-order + typing-guard pass over the whole tray ----
+  // Reopen the popover in what-if so every control (including the
+  // save-as-plan input) exists, then walk the tray's real focusable
+  // controls in DOM (= tab) order: pure focus must never change popover
+  // state, and while the plan-name input is focused NONE of the tray's
+  // hotkeys may fire (typing stays typing).
+  await keyOnFocused('i');
+  await waitFor('popover reopened for the focus-order pass', `!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
+  await keyOnFocused('w');
+  await waitFor('what-if mode on for the focus-order pass', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 2`, 6000);
+  const focusIds = await js(`(() => {
+      const tray = document.querySelector('[data-testid="download-tray"]');
+      if (!tray) return null;
+      const els = [...tray.querySelectorAll('button:not([disabled]), input, select, [tabindex]:not([tabindex="-1"])')];
+      const seen = [];
+      for (const el of els) {
+        el.focus();
+        if (document.activeElement !== el) return null;
+        const id = el.getAttribute('data-testid') || el.tagName.toLowerCase();
+        if (seen.indexOf(id) < 0) seen.push(id);
+      }
+      const steps = document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length;
+      return { count: els.length, uniq: seen, steps };
+    })()`);
+  if (!focusIds || focusIds.count < 6 || focusIds.steps !== 2) {
+    throw new Error(`tab-order focus cycle over the tray failed: ${JSON.stringify(focusIds)}`);
+  }
+  ok('tab-order focus cycle reaches every tray control without state churn', `${focusIds.count} controls in focus order (${focusIds.uniq.slice(0, 5).join(', ')}…)`);
+  if (!(await focusSel('[data-testid="download-tray"] [data-testid="dl-plan-name"]'))) throw new Error('could not focus the plan-name input');
+  // Press every hotkey letter + Escape while the input owns focus: the
+  // guard must swallow them all (no apply, no what-if flip, no close).
+  for (const k of ['i', 'w', 'a', 'r', 'q', 'x', 'Escape']) await keyOnFocused(k);
+  await setText('[data-testid="download-tray"] [data-testid="dl-plan-name"]', 'typing-guard');
+  const guardState = await js(`(() => { const input = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-name"]'); const steps = document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length; const pop = !!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); const tg = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return { value: input ? input.value : null, steps, pop, mode: tg ? tg.textContent.trim() : null }; })()`);
+  if (!guardState || guardState.pop !== true || guardState.steps !== 2 || guardState.value !== 'typing-guard') {
+    throw new Error(`a hotkey fired while typing in the plan-name input: ${JSON.stringify(guardState)}`);
+  }
+  ok('no hotkey fires while typing in the plan-name input (i/w/a/r/q/x/Escape ignored, popover untouched)');
+  // Clean up: clear the field, return to the live order, close, and refocus
+  // a neutral control so the next block starts where the keyboard left it.
+  await setText('[data-testid="download-tray"] [data-testid="dl-plan-name"]', '');
+  if (!(await focusSel('[data-testid="download-tray"] [data-testid="dl-smart-order"]'))) throw new Error('could not refocus the smart-order toggle');
+  await keyOnFocused('w');
+  await waitFor('focus pass returns to the live order', `(() => { const tg = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return tg && tg.textContent.includes('What if') ? true : null; })()`, 6000);
+  await keyOnFocused('q');
+  await waitFor('focus pass closes the popover', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order toggles back off', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '0'`, 6000);
   await waitFor('eta reasoning clears when smart order turns off', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta"]')`, 6000);

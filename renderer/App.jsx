@@ -187,6 +187,17 @@ function App() {
       /* non-fatal */
     }
   };
+  // One-time keyboard-shortcuts hint: shown until the user engages with the
+  // tray's queue controls once, then remembered forever (prefs flag) so it
+  // never reappears on later launches.
+  const markKbHintSeen = async () => {
+    try {
+      const out = await api.setPrefs({ queueKbHintSeen: true });
+      if (out) setPrefsState(out);
+    } catch {
+      /* non-fatal — hint may show again next launch */
+    }
+  };
   const clearAppliedPlan = async () => {
     try {
       const res = await api.clearAppliedQueuePlan();
@@ -787,7 +798,7 @@ function App() {
 
       {filesItem && <FilesModal item={filesItem} onClose={() => setFilesItem(null)} onToast={showToast} />}
 
-      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} onNightToggle={toggleNight} onPlanForce={setPlanForce} />
+      <DownloadTray downloads={downloads} onCancel={cancelDl} onClear={clearDl} onRetry={retryDl} onReveal={revealDl} onLimit={setDlLimit} onMove={moveDl} onMoveTo={moveDlTo} onPause={pauseDl} onResumeAll={resumeAllDl} onRemoveAll={removeAllPausedDl} smartOrder={!!(prefs && prefs.smartOrder)} onSmartOrder={toggleSmartOrder} onPreviewQueue={previewQueue} onApplyLimits={applyLimits} queuePlans={prefs && prefs.queuePlans} onSavePlan={savePlan} onReapplyPlan={reapplyPlan} onDeletePlan={deletePlan} appliedPlan={appliedPlan} onClearAppliedPlan={clearAppliedPlan} nightMode={nightMode} onNightToggle={toggleNight} onPlanForce={setPlanForce} kbHint={!(prefs && prefs.queueKbHintSeen)} onKbHintDone={markKbHintSeen} />
 
       {settingsOpen && (
         <SettingsModal

@@ -38,6 +38,13 @@
 // schedule-only plan with force=true so its cap binds regardless of the
 // clock, boot #2 asserts the force came back ON and still paces the queue.
 //
+// An eighth scenario quits from INSIDE the real what-if popover: boot #1
+// arms a schedule plan that carries BOTH a weekday selector and a folder
+// rule, opens the popover in the actual window, cycles a stray hypothetical
+// stepper WITHOUT applying it, and quits. Boot #2 asserts the plan (weekday
+// + folder entry) survived, the restored queue carries only the APPLIED
+// limits (the stray preview never leaked), and the transfers complete.
+//
 // A fourth scenario proves SMART ORDER + LEARNED SPEEDS survive:
 //   boot #1 (phase 'smart-start')  — enables the smart-order pref, starts
 //     four genuine downloads with per-transfer limits, waits until both
@@ -441,6 +448,53 @@ async function main() {
       if (dataDir7) {
         try {
           fs.rmSync(dataDir7, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
+    // ---- scenario 8: quitting from inside the what-if popover ----
+    let server8 = null;
+    let dataDir8 = null;
+    try {
+      const payload8 = makePayload();
+      server8 = await serveSlow(payload8, [], null);
+      const { port: port8 } = server8.address();
+      dataDir8 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-kb-boot-'));
+      const base8 = `http://127.0.0.1:${port8}/`;
+      const env8 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir8,
+        TORRENTOR_RESUME_BASE: base8,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+      };
+
+      // boot #1: smart order on, four genuine downloads, a plan saved with
+      // a FOLDER rule (c's dir @ 100 KB/s) + a per-file override (d @ 512
+      // KB/s) + a now-bracketing schedule with a WEEKDAY selector, APPLIED
+      // so its limits land — then the window is driven into the what-if
+      // popover and a stray hypothetical stepper is cycled WITHOUT applying,
+      // and the app quits from inside that popover.
+      const p1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env8, { TORRENTOR_RESUME_PHASE: 'kb-start' }));
+      check(p1.code === 0, `kb boot #1 exited ${p1.code} — ${p1.err.slice(0, 200)}`);
+      check(/KB_BOOT1_APPLIED/.test(p1.out), 'boot #1 applied the plan (folder rule + weekday window)');
+      check(/KB_BOOT1_POPOVER/.test(p1.out), 'boot #1 quit from inside the what-if popover with a stray preview');
+
+      // boot #2: the plan (folder rule + weekday selector) must survive and
+      // the restored queue must carry ONLY the applied limits — the stray
+      // what-if preview must not leak — then all four transfers complete.
+      const p2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env8, { TORRENTOR_RESUME_PHASE: 'kb-verify' }));
+      check(p2.code === 0, `kb boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
+      check(/KB_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the plan (weekday selector + folder rule)');
+      check(/KB_BOOT2_LIMITS_OK/.test(p2.out), 'boot #2 the stray what-if preview did not leak into the restored queue');
+      check(/KB_BOOT2_DONE/.test(p2.out), 'boot #2 completed all four resumed transfers');
+      ok('a schedule plan\'s weekday selector + folder rule survived a quit from inside the what-if popover', 'plan restored with its weekday window and folder rule; restored queue carries only the applied limits (the stray hypothetical preview never leaked); all four transfers completed to full size');
+    } finally {
+      if (server8) server8.close();
+      if (dataDir8) {
+        try {
+          fs.rmSync(dataDir8, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }

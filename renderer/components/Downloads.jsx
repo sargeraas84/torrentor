@@ -260,7 +260,7 @@ function FilesModal({ item, onClose, onToast }) {
 // ---------------------------------------------------------------- tray
 
 /** Bottom-right stack of transfers (running queue + recent session). */
-function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode, onNightToggle, onPlanForce }) {
+function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit, onMove, onMoveTo, onPause, onResumeAll, onRemoveAll, smartOrder, onSmartOrder, onPreviewQueue, onApplyLimits, queuePlans, onSavePlan, onReapplyPlan, onDeletePlan, appliedPlan, onClearAppliedPlan, nightMode, onNightToggle, onPlanForce, kbHint, onKbHintDone }) {
   const actives = downloads.filter((d) => d.status === 'downloading');
   const queuedItems = downloads.filter((d) => d.status === 'queued');
   const pausedItems = downloads.filter((d) => d.status === 'paused');
@@ -269,6 +269,11 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const queuedCount = queuedItems.length;
   const [dragId, setDragId] = useState(null); // queued id being dragged
   const [dropId, setDropId] = useState(null); // queued id currently hovered as drop target
+  // One-time keyboard-shortcuts hint (kbHint from App = the pref flag is
+  // still unset): shown the first time the smart-order cluster can actually
+  // be driven, retired permanently on any real interaction (its ×, opening
+  // the popover, using a hotkey, closing) — see retireHint below.
+  const [hintConsumed, setHintConsumed] = useState(false);
   // Smart-order popover state as ONE reducer unit (see queueUiReducer
   // above): open / what-if / preview patch / folder patch / re-rank order /
   // save-as-plan name + optional ACTIVE-WINDOW rule (e.g. a 'night' plan
@@ -452,10 +457,20 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
       : '';
   // The overlap warning doubles as a shortcut: clicking opens the what-if
   // popover (when it can render) so the plan can be cleared/switched there.
+  // Retire the one-time keyboard hint: the user has seen it AND interacted
+  // (hit its ×, opened the popover, pressed a hotkey, or closed the
+  // popover). The flag persists through App (prefs.queueKbHintSeen), so the
+  // hint never comes back on later boots.
+  const retireHint = () => {
+    if (!kbHint || hintConsumed) return;
+    setHintConsumed(true);
+    if (onKbHintDone) onKbHintDone();
+  };
   const openOverlapPopover = () => {
     if (smartOrder && queuedItems.length > 0) {
       dispatchUi({ type: 'open' });
       dispatchUi({ type: 'whatIfOn' });
+      retireHint();
     }
   };
   // ------------------------------------------------------------------
@@ -481,23 +496,28 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         e.preventDefault();
         e.stopPropagation();
         dispatchUi({ type: 'close' });
+        retireHint(); // they clearly found the keys
       } else if (e.key === 'w' || e.key === 'W') {
         e.preventDefault();
         toggleWhatIf();
+        retireHint();
       } else if (e.key === 'a' || e.key === 'A') {
         if (ui.whatIf) {
           e.preventDefault();
           applyPreview();
+          retireHint();
         }
       } else if (e.key === 'r' || e.key === 'R') {
         if (ui.whatIf) {
           e.preventDefault();
           resetPreview();
+          retireHint();
         }
       }
     } else if (e.key === 'i' || e.key === 'I' || e.key === 'q' || e.key === 'Q') {
       e.preventDefault();
       dispatchUi({ type: 'open' });
+      retireHint();
     }
   };
   // The tray-header plan switcher driven by keyboard: ArrowUp/Down move the
@@ -603,6 +623,44 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
         pointerEvents: 'none',
       }}
     >
+      {smartOrder && queuedItems.length > 0 && kbHint && !hintConsumed && (
+        <div
+          key="row-kb-hint"
+          data-testid="dl-kb-hint"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', pointerEvents: 'auto' }}
+        >
+          <span
+            className="tooltip"
+            data-tip="One-time tip — dismissed forever after you interact with the queue controls"
+            style={{ color: '#7ce7f7', fontSize: 9.5, lineHeight: 1.35, textAlign: 'right', fontStyle: 'italic' }}
+          >
+            ⌨ i/q popover · w what-if · a apply · r reset · Esc close · switcher ↑↓ + Enter
+          </span>
+          <button
+            type="button"
+            data-testid="dl-kb-hint-dismiss"
+            aria-label="Dismiss keyboard hint"
+            onClick={retireHint}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 16,
+              height: 16,
+              borderRadius: 99,
+              flexShrink: 0,
+              cursor: 'pointer',
+              background: 'transparent',
+              border: '1px solid #22314b',
+              color: '#8494ab',
+              fontSize: 10,
+              lineHeight: 1,
+            }}
+          >
+            <I.close size={9} />
+          </button>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
         <button
           type="button"
@@ -651,7 +709,11 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               cursor: 'pointer',
               flexShrink: 0,
             }}
-            onClick={() => (ui.open ? dispatchUi({ type: 'close' }) : dispatchUi({ type: 'open' }))}
+            onClick={() => {
+              if (ui.open) dispatchUi({ type: 'close' });
+              else dispatchUi({ type: 'open' });
+              retireHint(); // any engagement with the popover counts as taught
+            }}
           >
             <I.info size={11} />
           </button>
@@ -824,7 +886,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
             >
               {whatIf ? 'Live order' : 'What if…'}
             </button>
-            <button type="button" aria-label="Close" data-testid="dl-smart-pop-close" style={closeBtn} onClick={() => dispatchUi({ type: 'close' })}>
+            <button type="button" aria-label="Close" data-testid="dl-smart-pop-close" style={closeBtn} onClick={() => { dispatchUi({ type: 'close' }); retireHint(); }}>
               <I.close size={13} />
             </button>
           </div>

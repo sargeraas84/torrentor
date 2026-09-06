@@ -127,11 +127,15 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   schedule-only plan (weekday selector included) whose
                     #   window keeps capping the whole queue in boot #2
                     #   (measured pacing), the night-pill session override
-                    #   resets to follow the clock again in boot #2 — and a
+                    #   resets to follow the clock again in boot #2 — a
                     #   plan's persisted window-force toggle (per-plan "apply
                     #   this schedule now") that comes back still forcing the
-                    #   window in boot #2
-npm run test:ui    # 89-step real-window playtest (real engines): search,
+                    #   window in boot #2, and a quit from INSIDE the real
+                    #   what-if popover: a schedule plan's weekday selector +
+                    #   folder rule survive the relaunch and the stray
+                    #   (un-applied) preview never leaks into the restored
+                    #   queue
+npm run test:ui    # 94-step real-window playtest (real engines): search,
                     #   favorites, VPN check, paging, thumbnails, paced demo
                     #   (paused & resumed, queue reordered by drag-and-drop
                     #   + smart order with per-chip ETA/bytes + a popover
@@ -147,7 +151,12 @@ npm run test:ui    # 89-step real-window playtest (real engines): search,
                     #   which is ALSO driven keyboard-only (i/q open+close
                     #   the popover, w flips live↔what-if, a applies, r
                     #   resets, Esc closes; the plan switcher answers to
-                    #   arrows + Enter), Settings night mode (weekday
+                    #   arrows + Enter), a tab-order focus cycle walks every
+                    #   tray control, and pressing the hotkeys while typing
+                    #   in the plan-name input never fires them; a one-time
+                    #   keyboard-shortcuts hint teaches the hotkeys on
+                    #   first use (dismissed forever after),
+                    #   Settings night mode (weekday
                     #   presets), a one-click night-pill session override,
                     #   chip tooltips that break down own limit vs plan
                     #   window vs night cap, a clickable tray warning when

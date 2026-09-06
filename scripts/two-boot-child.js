@@ -606,6 +606,143 @@ async function phaseForceVerify(win) {
   app.exit(0);
 }
 
+// Scenario 8: a schedule plan carrying BOTH a WEEKDAY selector and a FOLDER
+// rule survives a relaunch when the app quits from INSIDE the what-if
+// popover — i.e. with a hypothetical preview still open and a stray
+// (un-applied) stepper patch in the renderer. Boot #1 arms the plan, opens
+// the real what-if popover in the actual window, cycles one stepper WITHOUT
+// applying (the stray preview), then quits. Boot #2 must restore the plan
+// (weekday selector + folder entry intact), restore the queue with the
+// APPLIED folder rule's limits (not the stray preview's), and complete.
+async function phaseKbStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hm = (ms) => {
+    const d = new Date(ms);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const from = hm(Date.now() - 2 * 3600e3);
+  const to = hm(Date.now() + 2 * 3600e3);
+  const today = new Date().getDay(); // weekday selector: this window only runs today
+  // Seed four genuine downloads and pace them like the plan scenario (two
+  // actives measuring their own speed, two queued at equal limits).
+  const urls = [0, 1, 2, 3].map((i) => `${BASE}kb-${i}.bin`);
+  const results = [];
+  for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
+  const ts = results.map((r) => r && r.transfer);
+  if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('kb seed transfers did not start cleanly');
+  const [a, b, c, d] = ts;
+  await js(`Promise.all([window.torrentor.setDownloadLimit(${a.id}, 98304), window.torrentor.setDownloadLimit(${b.id}, 131072), window.torrentor.setDownloadLimit(${c.id}, 262144), window.torrentor.setDownloadLimit(${d.id}, 262144)])`);
+  const snap = await js(`window.torrentor.getDownloads()`);
+  const cDir = (snap.find((t) => t.id === c.id) || {}).dir;
+  const dPath = (snap.find((t) => t.id === d.id) || {}).filePath;
+  if (!cDir || !dPath) throw new Error('queued transfers missing dir/filePath');
+  // One plan with BOTH a folder rule (c's dir @ 100 KB/s) and a schedule
+  // whose window brackets now but whose cap (1 MB/s) never binds below the
+  // per-file limits — the window's weekday selector is what must survive.
+  const saved = await js(`window.torrentor.saveQueuePlan('kb-plan', { ${d.id}: 524288 }, { ${JSON.stringify(cDir)}: 102400 }, ${JSON.stringify({ from, to, bytesPerSec: 1048576, days: [today] })})`);
+  const rec = (saved && saved['kb-plan']) || { entries: [] };
+  const entries = rec.entries || [];
+  if (entries.length !== 2 || !entries.some((e) => e.dir === cDir) || !entries.some((e) => e.filePath === dPath && e.bytesPerSec === 524288)) {
+    throw new Error(`plan did not save as folder rule + override: ${JSON.stringify(rec)}`);
+  }
+  if (!rec.schedule || !rec.schedule.days || rec.schedule.days.join(',') !== String(today)) {
+    throw new Error(`plan weekday selector missing: ${JSON.stringify(rec && rec.schedule)}`);
+  }
+  // Arm it — the apply persists the armed plan (name + schedule + weekday)
+  // AND lands the folder rule on the live queue, so boot #2 can assert the
+  // applied limits came back without any re-apply.
+  const res = await js(`window.torrentor.applyQueuePlan('kb-plan')`);
+  const info = res && res.appliedPlan;
+  if (!info || info.name !== 'kb-plan' || !info.windowActive) throw new Error(`boot#1 did not arm the plan: ${JSON.stringify(info)}`);
+  console.log('KB_BOOT1_APPLIED name=kb-plan folder=100KB/s windowDays=' + today);
+  // Now drive the REAL window into the what-if popover: smart order on via
+  // the tray button (the renderer must know it for the popover to render),
+  // open the start-order popover, flip into what-if, and cycle ONE stepper
+  // to a hypothetical limit WITHOUT applying — a stray preview that boot #2
+  // must prove never leaked into the persisted queue limits.
+  await waitFor('tray mounted with seeded chips', () => js(`document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"]').length >= 4`), 30000);
+  await js(`(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]'); if (!b) return false; b.click(); return true; })()`);
+  await waitFor('smart order on via the tray button', () => js(`(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]'); return b && b.getAttribute('data-on') === '1' ? true : null; })()`), 10000);
+  await waitFor('queued rows exist to fill the popover', () => js(`document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length >= 1`), 20000);
+  await js(`(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-info"]'); if (!b) return false; b.click(); return true; })()`);
+  await waitFor('what-if popover opens in the window', () => js(`!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`), 10000);
+  await js(`(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); if (!b) return false; b.click(); return true; })()`);
+  const stepper0 = await waitFor('what-if steppers appear on the preview rows', () => js(`(() => { const s = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"]'); return s ? { id: s.getAttribute('data-id'), before: s.getAttribute('data-limit') } : null; })()`), 10000);
+  await js(`(() => { const s = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"]'); if (!s) return false; s.click(); return true; })()`);
+  await waitFor('stray stepper patch cycles WITHOUT applying', () => js(`(() => { const s = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-step"]'); return s && s.getAttribute('data-limit') !== ${JSON.stringify(stepper0.before)} ? s.getAttribute('data-limit') : null; })()`), 10000);
+  // Quit from INSIDE the popover, still in what-if with the stray patch.
+  await new Promise((r) => setTimeout(r, 600)); // flush prefs
+  console.log(`KB_BOOT1_POPOVER id=${stepper0.id} strayLimit=${stepper0.before}`);
+  console.log('KB_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phaseKbVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // The plan must survive with BOTH its folder rule and its weekday
+  // selector (entries keyed by folder/path; ids are transient).
+  const planRec = await waitFor(
+    'boot#2 queue plan restored from prefs',
+    () => js(`window.torrentor.listQueuePlans().then((p) => { const rec = (p || {})['kb-plan']; return rec && rec.entries && rec.entries.length === 2 && rec.schedule && rec.schedule.days ? rec : null; })`),
+    20000
+  );
+  const today = new Date().getDay();
+  const folderEntry = planRec.entries.find((e) => e.dir);
+  const fileEntry = planRec.entries.find((e) => e.filePath);
+  if (!folderEntry || !fileEntry) throw new Error(`plan shape lost across restart: ${JSON.stringify(planRec)}`);
+  if (folderEntry.bytesPerSec !== 102400 || fileEntry.bytesPerSec !== 524288) throw new Error(`plan limits lost across restart: ${JSON.stringify(planRec)}`);
+  if (!planRec.schedule.days || planRec.schedule.days.join(',') !== String(today)) throw new Error(`plan weekday selector lost: ${JSON.stringify(planRec.schedule)}`);
+  const info = await waitFor(
+    'boot#2 armed plan restored (window active, marked restored)',
+    () => js(`window.torrentor.getAppliedPlan().then((i) => (i && i.name === 'kb-plan' && i.restored === true && i.windowActive && i.schedule && i.schedule.days ? i : null))`),
+    20000
+  );
+  if (info.schedule.days.join(',') !== String(today)) throw new Error(`boot#2 applied arm lost its weekday selector: ${JSON.stringify(info.schedule)}`);
+  console.log(`KB_BOOT2_PLAN_OK name=kb-plan folder=100KB/s override=512KB/s days=[${today}] restored=true`);
+  // The restored queue must carry the APPLIED folder rule's limits (c at
+  // 100 KB/s, d at 512 KB/s) — and NOT whatever hypothetical value the
+  // stray what-if stepper cycled to in boot #1. Preview state dies with the
+  // renderer; only real applies persist.
+  const state = await waitFor(
+    'boot#2 restored transfers carry the applied limits, not the stray preview',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        if (mine.length < 4) return null;
+        const byName = Object.fromEntries(mine.map((t) => [t.url.split('/').pop(), t]));
+        if (!byName['kb-2.bin'] || !byName['kb-3.bin']) return null;
+        return { cLimit: byName['kb-2.bin'].maxBytesPerSec, dLimit: byName['kb-3.bin'].maxBytesPerSec, files: mine.map((t) => t.filePath) };
+      })()`),
+    25000
+  );
+  if (state.cLimit !== 102400 || state.dLimit !== 524288) {
+    throw new Error(`restored limits wrong (stray preview leaked?): c=${state.cLimit} d=${state.dLimit}`);
+  }
+  console.log(`KB_BOOT2_LIMITS_OK c=${state.cLimit} d=${state.dLimit} (stray preview did not leak)`);
+  await waitFor(
+    'boot#2 all four resumed transfers complete',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        return mine.length === 4 && mine.every((t) => t.status === 'done') ? mine : null;
+      })()`),
+    120000
+  );
+  const sizes = state.files.map((fp) => (fs.existsSync(fp) ? fs.statSync(fp).size : -1));
+  if (sizes.some((s) => s !== EXPECTED)) throw new Error(`final sizes ${JSON.stringify(sizes)} !== ${EXPECTED}`);
+  console.log('KB_BOOT2_DONE bytes=' + EXPECTED);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
+}
+
 async function phasePauseStart(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const started = await js(`window.torrentor.downloadFile(${JSON.stringify(DL_URL)})`);
@@ -713,6 +850,8 @@ async function main() {
     else if (PHASE === 'night-verify') await phaseNightVerify(win);
     else if (PHASE === 'force-start') await phaseForceStart(win);
     else if (PHASE === 'force-verify') await phaseForceVerify(win);
+    else if (PHASE === 'kb-start') await phaseKbStart(win);
+    else if (PHASE === 'kb-verify') await phaseKbVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));
