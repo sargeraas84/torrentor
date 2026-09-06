@@ -78,7 +78,7 @@ contextBridge.exposeInMainWorld('torrentor', {
   saveQueuePlan: bridge('queuePlans:save', (name, patch, folderPatch, schedule) => ({ name, patch, folderPatch, schedule })),
   listQueuePlans: bridge('queuePlans:list'),
   applyQueuePlan: bridge('queuePlans:apply', (name, force) => ({ name, force: force === true || force === false ? force : undefined })),
-  setQueuePlanForce: bridge('queuePlans:setForce', (force) => ({ force: force === true || force === false ? force : null })),
+  setQueuePlanForce: bridge('queuePlans:setForce', (force, persist) => ({ force: force === true || force === false ? force : null, persist: persist === true })),
   deleteQueuePlan: bridge('queuePlans:delete', (name) => ({ name })),
   clearAppliedQueuePlan: bridge('queuePlans:clearApplied'),
   clearDownloads: bridge('downloads:clear'),

@@ -174,12 +174,14 @@ function App() {
       showToast(`Plan apply failed — ${(err && err.message) || 'unknown error'}`);
     }
   };
-  // Session-only force on the ARMED plan's window ('apply this schedule
-  // now'): true = window active regardless of the clock, false = suppressed,
-  // null = follow the clock again.
-  const setPlanForce = async (force) => {
+  // Force on the ARMED plan's window ('apply this schedule now'): true =
+  // window active regardless of the clock, false = suppressed, null =
+  // follow the clock again. persist=true (the per-plan toggle in the tray)
+  // ALSO writes the force into the plan record + the applied-plan pref, so
+  // a relaunch restores the window forced exactly this way.
+  const setPlanForce = async (force, persist) => {
     try {
-      const info = await api.setQueuePlanForce(force === true || force === false ? force : null);
+      const info = await api.setQueuePlanForce(force === true || force === false ? force : null, persist === true);
       if (info) setAppliedPlan(info);
     } catch {
       /* non-fatal */

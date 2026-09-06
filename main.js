@@ -85,14 +85,20 @@ async function bootstrap() {
 
   // Live speed schedules: the Settings 'night mode' cap applies on boot, and
   // the LAST APPLIED queue plan is re-armed exactly as the user left it —
-  // its name badge + any schedule window come back across a relaunch.
+  // its name badge + any schedule window + the window's force come back
+  // across a relaunch (night mode's SESSION override, by contrast, always
+  // resets to follow the clock).
   downloads.setGlobalSchedule(normalizeSchedule(storage.getPrefs().nightMode));
   downloads.setNightOverride(null); // session override resets on every boot
   const appliedAtBoot = storage.getPrefs().appliedQueuePlan;
   if (appliedAtBoot && appliedAtBoot.name) {
     downloads.setActivePlan(String(appliedAtBoot.name), normalizeSchedule(appliedAtBoot.schedule));
+    // A plan whose window the user forced ON/OFF comes back forced exactly
+    // that way — the per-plan toggle is persisted, unlike night mode's
+    // session override. (No explicit force = null = follow the clock.)
+    if (appliedAtBoot.force === true || appliedAtBoot.force === false) downloads.setPlanForce(appliedAtBoot.force);
     // This arm came from the persisted record, not a fresh apply — the tray
-    // note says so (the session force also resets, exactly like night mode).
+    // note says so, keeping the last explicit apply time for provenance.
     downloads.noteAppliedPlan({ restored: true, appliedAt: appliedAtBoot.appliedAt || null });
   }
 
@@ -576,7 +582,14 @@ function registerIpc() {
     const key = String(name || '').trim();
     if (!key) throw new Error('Give the plan a name first.');
     const plans = Object.assign({}, storage.getPrefs().queuePlans || {});
+    // A saved plan is { entries, schedule } — entries are the per-file /
+    // per-folder limits, schedule (optional) is an active-window rule. A
+    // plan that carries a persisted window FORCE (from the per-plan toggle)
+    // keeps it across a re-save — the toggle is the plan's own property.
+    const prev = plans[key];
+    const prevForce = prev && (prev.force === true || prev.force === false) ? prev.force : undefined;
     plans[key] = { entries: downloads.planEntries(patch || {}, folderPatch || {}), schedule: normalizeSchedule(schedule) };
+    if (prevForce !== undefined) plans[key].force = prevForce;
     storage.replacePrefs('queuePlans', plans);
     broadcastDownloads('plan', null); // any source (UI or IPC) refreshes the tray switcher list
     return plans;
@@ -595,25 +608,57 @@ function registerIpc() {
     // any schedule window on the whole queue; then the per-file limits
     // land for real (folder rules cover files queued later too). A caller
     // may pass force=true/false to start/stop the plan's window RIGHT NOW
-    // regardless of the clock (the 'apply this schedule now' button).
+    // regardless of the clock (the 'apply this schedule now' button). An
+    // explicit force is the per-plan TOGGLE: it persists into the plan
+    // record, so a later relaunch restores the window forced the same way.
+    const hasExplicitForce = force === true || force === false;
     downloads.setActivePlan(key, rec.schedule);
-    if (force === true || force === false) downloads.setPlanForce(force);
+    if (hasExplicitForce) downloads.setPlanForce(force);
     const applied = downloads.applyPlanEntries(rec.entries, (entry, kind) => broadcastDownloads(kind, entry.id));
     // Remember the armed plan so the next launch restores it (name badge +
-    // any schedule window) exactly as the user left it — along with when it
-    // was applied, so the tray can say 'applied at …' vs 'restored at boot'.
+    // any schedule window + the window's force) exactly as the user left it
+    // — along with when it was applied, so the tray can say 'applied at …'
+    // vs 'restored at boot'.
     const nowIso = new Date().toISOString();
     downloads.noteAppliedPlan({ restored: false, appliedAt: nowIso });
-    storage.updatePrefs({ appliedQueuePlan: { name: key, schedule: rec.schedule, appliedAt: nowIso } });
+    const forceState = hasExplicitForce ? force : null;
+    storage.updatePrefs({ appliedQueuePlan: { name: key, schedule: rec.schedule, appliedAt: nowIso, force: forceState } });
+    if (hasExplicitForce && plans[key]) {
+      // The toggle's state belongs to the PLAN (per-plan), not just the arm.
+      plans[key] = Object.assign({}, plans[key], { force });
+      storage.replacePrefs('queuePlans', plans);
+    } else if (!hasExplicitForce && plans[key] && (plans[key].force === true || plans[key].force === false)) {
+      // A plain Apply means 'follow the clock again': drop the persisted
+      // toggle from the plan record too, so a later boot or re-apply of
+      // this plan starts from auto rather than a stale force.
+      plans[key] = Object.assign({}, plans[key]);
+      delete plans[key].force;
+      storage.replacePrefs('queuePlans', plans);
+    }
     broadcastDownloads('plan', null); // arm + provenance reach every window
     return { applied, appliedPlan: downloads.appliedPlanInfo(), snapshot: downloads.snapshot() };
   });
 
-  // Session-only force on the ARMED plan's window (per-plan sibling of the
-  // night pill): true = window active now regardless of the clock, false =
-  // suppressed regardless, null = follow the window again. Not persisted.
-  handle('queuePlans:setForce', ({ force }) => {
-    const info = downloads.setPlanForce(force === true ? true : force === false ? false : null);
+  // Force on the ARMED plan's window (per-plan sibling of the night pill):
+  // true = window active now regardless of the clock, false = suppressed
+  // regardless, null = follow the window again. With persist=true the
+  // toggle is ALSO written into the plan's record + the applied-plan pref,
+  // so a relaunch restores the window forced exactly this way.
+  handle('queuePlans:setForce', ({ force, persist }) => {
+    const f = force === true ? true : force === false ? false : null;
+    const info = downloads.setPlanForce(f);
+    if (persist) {
+      const key = downloads.activePlanNameOf();
+      if (key) {
+        const all = Object.assign({}, storage.getPrefs().queuePlans || {});
+        if (all[key]) {
+          all[key] = Object.assign({}, all[key], { force: f });
+          storage.replacePrefs('queuePlans', all);
+        }
+        const ap = storage.getPrefs().appliedQueuePlan || {};
+        storage.updatePrefs({ appliedQueuePlan: Object.assign({}, ap, { force: f }) });
+      }
+    }
     broadcastDownloads('plan', null);
     return info;
   });

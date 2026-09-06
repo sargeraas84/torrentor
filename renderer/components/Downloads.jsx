@@ -1,6 +1,6 @@
 'use strict';
 const React = require('react');
-const { useState, useEffect } = require('react');
+const { useState, useEffect, useReducer } = require('react');
 const { I } = require('./icons');
 const fmt = require('../../lib/format');
 const { nextPreset, limitLabel } = require('../../lib/download-presets');
@@ -75,6 +75,46 @@ function fmtEta(sec) {
   if (m < 60) return s % 60 ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${m}m`;
   const h = Math.floor(m / 60);
   return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+// ---------------------------------------------------------------- popover
+
+/**
+ * One state unit for the smart-order popover: whether it is open, whether
+ * it is showing the what-if preview, the hypothetical per-file patch + per-
+ * folder patch being previewed, the manager's preview re-rank, and the
+ * save-as-plan fields (name + optional active-window rule). Keeping all of
+ * it in a single reducer means transitions are atomic — closing the popover
+ * resets the transient what-if/preview fields in the SAME action, so state
+ * can never leak across an open/close cycle (a what-if leftover that flips
+ * the next open into preview mode, half-applied patches, stale re-ranks…).
+ */
+const queueUiInitial = {
+  open: false, // popover open?
+  whatIf: false, // showing the hypothetical re-rank?
+  patch: {}, // { transferId: bps } hypothetical limits
+  folder: {}, // { dir: bps } hypothetical folder rules
+  order: null, // previewQueueOrder result (live rows while null)
+  planName: '', // save-as-plan input
+  schedule: null, // { from, to, bytesPerSec, days? } | null on the plan being saved
+};
+function queueUiReducer(state, action) {
+  switch (action.type) {
+    case 'open':
+      // Reopening always lands on the LIVE order; any leftover what-if
+      // preview from a previous visit is intentionally dropped.
+      return { ...state, open: true, whatIf: false, patch: {}, folder: {}, order: null };
+    case 'close':
+      return { ...queueUiInitial };
+    case 'whatIfOn':
+      return { ...state, whatIf: true };
+    case 'whatIfOff':
+      return { ...state, whatIf: false, patch: {}, folder: {}, order: null };
+    case 'update':
+      return { ...state, ...action.next };
+    default:
+      return state;
+  }
 }
 
 // ---------------------------------------------------------------- modal
@@ -229,15 +269,12 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   const queuedCount = queuedItems.length;
   const [dragId, setDragId] = useState(null); // queued id being dragged
   const [dropId, setDropId] = useState(null); // queued id currently hovered as drop target
-  const [showQueueInfo, setShowQueueInfo] = useState(false); // smart-order popover
-  const [whatIf, setWhatIf] = useState(false); // popover what-if mode
-  const [previewPatch, setPreviewPatch] = useState({}); // hypothetical limits {id: bps}
-  const [folderPatch, setFolderPatch] = useState({}); // hypothetical folder rules {dir: bps}
-  const [previewOrder, setPreviewOrder] = useState(null); // previewQueueOrder result
-  const [planName, setPlanName] = useState(''); // save-as-plan input
-  // Optional ACTIVE-WINDOW rule on the plan being saved (e.g. a 'night'
-  // plan throttling the whole queue to 100 KB/s between 23:00 and 07:00).
-  const [planSchedule, setPlanSchedule] = useState(null); // { from, to, bytesPerSec, days? } | null
+  // Smart-order popover state as ONE reducer unit (see queueUiReducer
+  // above): open / what-if / preview patch / folder patch / re-rank order /
+  // save-as-plan name + optional ACTIVE-WINDOW rule (e.g. a 'night' plan
+  // throttling the whole queue to 100 KB/s between 23:00 and 07:00).
+  const [ui, dispatchUi] = useReducer(queueUiReducer, queueUiInitial);
+  const { whatIf, patch: previewPatch, folder: folderPatch, order: previewOrder, planName, schedule: planSchedule } = ui;
   // Chip tooltip explaining the EFFECTIVE speed when a shared cap (plan
   // window or night mode) binds a transfer: own limit vs plan window vs
   // night cap. Returns null when no shared cap is binding — then the chip
@@ -322,30 +359,24 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     }
   };
   const toggleWhatIf = async () => {
-    if (whatIf) {
-      setWhatIf(false);
-      setPreviewPatch({});
-      setFolderPatch({});
-      setPreviewOrder(null);
+    if (ui.whatIf) {
+      dispatchUi({ type: 'whatIfOff' });
     } else {
-      setWhatIf(true);
-      setPreviewOrder(await fetchPreview({}));
+      dispatchUi({ type: 'whatIfOn' });
+      dispatchUi({ type: 'update', next: { order: await fetchPreview({}) } });
     }
   };
   const stepLimit = async (id, current) => {
     const next = nextPreset(current);
-    const patch = { ...previewPatch, [id]: next };
-    setPreviewPatch(patch);
-    setPreviewOrder(await fetchPreview(patch));
+    const patch = { ...ui.patch, [id]: next };
+    dispatchUi({ type: 'update', next: { patch, order: await fetchPreview(patch) } });
   };
   const applyPreview = async () => {
-    if (onApplyLimits) await onApplyLimits(previewPatch);
+    if (onApplyLimits) await onApplyLimits(ui.patch);
     // Stay in preview mode so the applied patch can be saved as a plan.
   };
   const resetPreview = async () => {
-    setPreviewPatch({});
-    setFolderPatch({});
-    setPreviewOrder(await fetchPreview({}));
+    dispatchUi({ type: 'update', next: { patch: {}, folder: {}, order: await fetchPreview({}) } });
   };
   // Folder stepper: cycle one hypothetical limit and apply it to every
   // queued file headed to the same folder. The folder-level value is also
@@ -356,36 +387,34 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     const group = (folderGroups || []).find((g) => g.dir === dir);
     if (!group) return;
     const next = nextPreset(current);
-    const patch = { ...previewPatch };
+    const patch = { ...ui.patch };
     for (const d of group.rows) patch[d.id] = next;
-    setPreviewPatch(patch);
-    setFolderPatch((f) => ({ ...f, [dir]: next }));
-    setPreviewOrder(await fetchPreview(patch));
+    dispatchUi({ type: 'update', next: { patch, folder: { ...ui.folder, [dir]: next }, order: await fetchPreview(patch) } });
   };
   // Queue plans: save the current patch (+ optional active-window rule)
   // under a name, re-apply a saved plan, or delete one.
   const savePlan = async () => {
-    const name = planName.trim();
+    const name = ui.planName.trim();
     if (!name || !onSavePlan) return;
-    await onSavePlan(name, previewPatch, folderPatch, planSchedule);
-    setPlanName('');
-    setPlanSchedule(null);
+    await onSavePlan(name, ui.patch, ui.folder, ui.schedule);
+    dispatchUi({ type: 'update', next: { planName: '', schedule: null } });
   };
   // Schedule editor: cycle the whole-queue cap while editing a window, or
   // toggle the editor open/closed (defaults to a 23:00–07:00 'night' cap).
   const stepPlanScheduleBps = () => {
-    if (!planSchedule) return;
-    setPlanSchedule({ ...planSchedule, bytesPerSec: nextPreset(planSchedule.bytesPerSec) });
+    if (!ui.schedule) return;
+    dispatchUi({ type: 'update', next: { schedule: { ...ui.schedule, bytesPerSec: nextPreset(ui.schedule.bytesPerSec) } } });
   };
   const togglePlanSchedule = () => {
-    if (planSchedule) {
-      setPlanSchedule(null);
-    } else {
-      setPlanSchedule({ from: '23:00', to: '07:00', bytesPerSec: 102400 });
-    }
+    dispatchUi({
+      type: 'update',
+      next: { schedule: ui.schedule ? null : { from: '23:00', to: '07:00', bytesPerSec: 102400 } },
+    });
   };
-  const togglePlanDay = (v) => setPlanSchedule((s) => (s ? { ...s, days: toggleDays(s.days, v) } : s));
-  const applyPlanDayPreset = (days) => setPlanSchedule((s) => (s ? { ...s, days: days ? days.slice() : undefined } : s));
+  const togglePlanDay = (v) =>
+    dispatchUi({ type: 'update', next: { schedule: ui.schedule ? { ...ui.schedule, days: toggleDays(ui.schedule.days, v) } : ui.schedule } });
+  const applyPlanDayPreset = (days) =>
+    dispatchUi({ type: 'update', next: { schedule: ui.schedule ? { ...ui.schedule, days: days ? days.slice() : undefined } : ui.schedule } });
   const reapplyPlan = async (name, force) => {
     if (onReapplyPlan) await onReapplyPlan(name, force);
   };
@@ -403,11 +432,14 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   };
   const stepRowForce = async (name) => {
     if (appliedName !== name) {
-      await reapplyPlan(name, true); // arm + start its window now
+      await reapplyPlan(name, true); // arm + start its window now (persisted)
       return;
     }
     const cur = appliedPlan && appliedPlan.force;
-    await onPlanForce(cur === true ? false : true); // auto→on→off→on (session)
+    // Per-plan toggle: the force is PERSISTED (persist=true) — main writes
+    // it into the plan record + the applied-plan pref, so a relaunch
+    // restores the window forced exactly this way (auto→on→off→on).
+    await onPlanForce(cur === true ? false : true, true);
   };
   // Provenance of the applied plan for the popover note: was it applied in
   // this session, or re-armed from prefs at boot (and when was it applied)?
@@ -422,8 +454,84 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   // popover (when it can render) so the plan can be cleared/switched there.
   const openOverlapPopover = () => {
     if (smartOrder && queuedItems.length > 0) {
-      setShowQueueInfo(true);
-      setWhatIf(true);
+      dispatchUi({ type: 'open' });
+      dispatchUi({ type: 'whatIfOn' });
+    }
+  };
+  // ------------------------------------------------------------------
+  // Keyboard driving of the smart-order cluster. While focus sits anywhere
+  // inside the tray (a chip, the smart-order toggle…), single-key
+  // accelerators run the popover without a mouse:
+  //   i / q  — open the popover (or close it when already open)
+  //   w      — flip live order ↔ what-if preview
+  //   a      — apply the previewed limits (what-if mode)
+  //   r      — reset the preview (what-if mode)
+  //   Escape — close the popover
+  // Typing into an input/textarea always falls through untouched, and the
+  // plan switcher <select> handles its own arrows/Enter (handleSwitchKeys).
+  // The actions only exist when the popover can render (smart order on and
+  // files queued), so stray presses elsewhere in the tray are no-ops.
+  const handleTrayKeys = (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (t && t.tagName === 'SELECT') return; // the switcher owns its arrows
+    if (!smartOrder || queuedItems.length === 0) return;
+    if (ui.open) {
+      if (e.key === 'Escape' || e.key === 'i' || e.key === 'I' || e.key === 'q' || e.key === 'Q' || e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        e.stopPropagation();
+        dispatchUi({ type: 'close' });
+      } else if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        toggleWhatIf();
+      } else if (e.key === 'a' || e.key === 'A') {
+        if (ui.whatIf) {
+          e.preventDefault();
+          applyPreview();
+        }
+      } else if (e.key === 'r' || e.key === 'R') {
+        if (ui.whatIf) {
+          e.preventDefault();
+          resetPreview();
+        }
+      }
+    } else if (e.key === 'i' || e.key === 'I' || e.key === 'q' || e.key === 'Q') {
+      e.preventDefault();
+      dispatchUi({ type: 'open' });
+    }
+  };
+  // The tray-header plan switcher driven by keyboard: ArrowUp/Down move the
+  // highlighted option (preventDefault keeps it deterministic across
+  // platforms), Enter commits the highlighted plan (apply / clear), Escape
+  // cancels a pending highlight back to the applied plan. Mouse users keep
+  // the native <select> change path — both funnel through commitSwitch.
+  const commitSwitch = (v) => {
+    if (v === '__clear') {
+      if (onClearAppliedPlan) onClearAppliedPlan();
+    } else if (v) {
+      reapplyPlan(v);
+    }
+  };
+  const handleSwitchKeys = (e) => {
+    const sel = e.target;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const opts = Array.prototype.slice.call(sel.options || []);
+      if (!opts.length) return;
+      const cur = Math.max(0, sel.selectedIndex);
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      let idx = cur;
+      for (let step = 1; step <= opts.length; step++) {
+        idx = (cur + delta * step + opts.length) % opts.length;
+        if (!opts[idx].disabled) break;
+      }
+      sel.selectedIndex = idx; // pending highlight (also moves sel.value)
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      commitSwitch(sel.value);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (sel.value !== (appliedName || '')) sel.value = appliedName || '';
     }
   };
   // Hypothetical limit shown on a what-if row/folder stepper: the preview
@@ -482,6 +590,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     <div
       className="fade-in"
       data-testid="download-tray"
+      onKeyDown={handleTrayKeys}
       style={{
         position: 'absolute',
         right: 16,
@@ -527,7 +636,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
             data-testid="dl-smart-info"
             aria-label="Explain queue order"
             className="tooltip"
-            data-tip="Why this order — per-file ETA breakdown"
+            data-tip="Why this order — per-file ETA breakdown (i/q: open, w: what-if, Esc: close)"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -536,13 +645,13 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
               height: 20,
               marginLeft: 6,
               borderRadius: 99,
-              background: showQueueInfo ? 'rgba(34,211,238,0.15)' : 'rgba(34,211,238,0.08)',
-              border: showQueueInfo ? '1px solid #22d3ee77' : '1px solid #22d3ee44',
+              background: ui.open ? 'rgba(34,211,238,0.15)' : 'rgba(34,211,238,0.08)',
+              border: ui.open ? '1px solid #22d3ee77' : '1px solid #22d3ee44',
               color: '#7ce7f7',
               cursor: 'pointer',
               flexShrink: 0,
             }}
-            onClick={() => setShowQueueInfo((v) => !v)}
+            onClick={() => (ui.open ? dispatchUi({ type: 'close' }) : dispatchUi({ type: 'open' }))}
           >
             <I.info size={11} />
           </button>
@@ -571,15 +680,12 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
             <select
               data-testid="dl-plan-switch"
               value={appliedName}
-              title={appliedName ? `Plan “${appliedName}” applied${appliedPlan && appliedPlan.windowActive ? ' — window cap active now' : ''}` : 'Apply a saved queue plan'}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === '__clear') {
-                  if (onClearAppliedPlan) onClearAppliedPlan();
-                } else if (v) {
-                  reapplyPlan(v);
-                }
-              }}
+              title={
+                (appliedName ? `Plan “${appliedName}” applied${appliedPlan && appliedPlan.windowActive ? ' — window cap active now' : ''}` : 'Apply a saved queue plan') +
+                ' — keyboard: arrows pick a plan, Enter applies, Esc cancels'
+              }
+              onKeyDown={handleSwitchKeys}
+              onChange={(e) => commitSwitch(e.target.value)}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -685,7 +791,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
           </button>
         </div>
       )}
-      {showQueueInfo && smartOrder && queuedItems.length > 0 && (
+      {ui.open && smartOrder && queuedItems.length > 0 && (
         <div
           key="smart-pop"
           data-testid="dl-smart-pop"
@@ -718,7 +824,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
             >
               {whatIf ? 'Live order' : 'What if…'}
             </button>
-            <button type="button" aria-label="Close" data-testid="dl-smart-pop-close" style={closeBtn} onClick={() => setShowQueueInfo(false)}>
+            <button type="button" aria-label="Close" data-testid="dl-smart-pop-close" style={closeBtn} onClick={() => dispatchUi({ type: 'close' })}>
               <I.close size={13} />
             </button>
           </div>
@@ -768,8 +874,8 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                 <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                   <input
                     data-testid="dl-plan-name"
-                    value={planName}
-                    onChange={(e) => setPlanName(e.target.value)}
+                    value={ui.planName}
+                    onChange={(e) => dispatchUi({ type: 'update', next: { planName: e.target.value } })}
                     placeholder="Plan name…"
                     style={planInput}
                   />
@@ -791,7 +897,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                       data-testid="dl-plan-sched-from"
                       type="time"
                       value={planSchedule.from}
-                      onChange={(e) => setPlanSchedule((s) => (s ? { ...s, from: e.target.value } : s))}
+                      onChange={(e) => dispatchUi({ type: 'update', next: { schedule: { ...ui.schedule, from: e.target.value } } })}
                       style={timeInput}
                     />
                     <span style={{ color: '#5b6b84', fontSize: 9, flexShrink: 0 }}>–</span>
@@ -799,7 +905,7 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
                       data-testid="dl-plan-sched-to"
                       type="time"
                       value={planSchedule.to}
-                      onChange={(e) => setPlanSchedule((s) => (s ? { ...s, to: e.target.value } : s))}
+                      onChange={(e) => dispatchUi({ type: 'update', next: { schedule: { ...ui.schedule, to: e.target.value } } })}
                       style={timeInput}
                     />
                     <button

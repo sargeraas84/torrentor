@@ -30,6 +30,14 @@
 //     came back in the reordered position with every limit intact, then
 //     that all four transfers completed to the exact full size.
 //
+// A sixth scenario proves an ARMED SCHEDULE PLAN survives (auto-restored
+// with its weekday selector; the night-pill SESSION override does not).
+//
+// A seventh scenario proves a plan's WINDOW FORCE TOGGLE (the per-plan
+// 'Start now / Stop window') survives a relaunch: boot #1 applies a
+// schedule-only plan with force=true so its cap binds regardless of the
+// clock, boot #2 asserts the force came back ON and still paces the queue.
+//
 // A fourth scenario proves SMART ORDER + LEARNED SPEEDS survive:
 //   boot #1 (phase 'smart-start')  — enables the smart-order pref, starts
 //     four genuine downloads with per-transfer limits, waits until both
@@ -388,6 +396,51 @@ async function main() {
       if (dataDir6) {
         try {
           fs.rmSync(dataDir6, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
+    // ---- scenario 7: a plan's persisted window-force toggle survives ----
+    let server7 = null;
+    let dataDir7 = null;
+    try {
+      const payload7 = makePayload();
+      server7 = await serveSlow(payload7, [], null);
+      const { port: port7 } = server7.address();
+      dataDir7 = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-force-boot-'));
+      const base7 = `http://127.0.0.1:${port7}/`;
+      const env7 = {
+        TORRENTOR_SMOKE: '1',
+        TORRENTOR_DATA_DIR: dataDir7,
+        TORRENTOR_RESUME_BASE: base7,
+        TORRENTOR_RESUME_EXPECTED_BYTES: String(SIZE),
+      };
+
+      // boot #1: smart order on, four genuine downloads at 512 KB/s each,
+      // then a SCHEDULE-ONLY plan ('boot-force', a 23:00–07:00 window @
+      // 40 KB/s) saved and APPLIED WITH force=true — the per-plan toggle —
+      // so its cap binds right now regardless of the clock, and quit
+      // mid-flight. Both the arm and the force persist into prefs.
+      const p1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env7, { TORRENTOR_RESUME_PHASE: 'force-start' }));
+      check(p1.code === 0, `force boot #1 exited ${p1.code} — ${p1.err.slice(0, 200)}`);
+      check(/FORCE_BOOT1_ARMED/.test(p1.out), 'boot #1 applied the schedule plan with its window forced ON');
+
+      // boot #2: the applied plan must be RE-ARMED from prefs WITH THE
+      // FORCE STILL ON (the persisted toggle is re-applied at boot, no
+      // manual re-apply), and the 40 KB/s cap must still be genuinely
+      // pacing the restored transfers.
+      const p2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env7, { TORRENTOR_RESUME_PHASE: 'force-verify' }));
+      check(p2.code === 0, `force boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
+      check(/FORCE_BOOT2_FORCE_OK/.test(p2.out), 'boot #2 restored the armed plan with its window force still ON');
+      check(/FORCE_BOOT2_PACED_OK/.test(p2.out), 'boot #2 the restored force is really capping the queue');
+      ok('a plan\'s persisted window-force toggle survived a relaunch and kept capping the whole queue', 'boot-force applied with force=true in boot #1 came back force=true + window active in boot #2, marked as a boot restore with the boot-#1 apply time, and measured pacing ≈ 40 KB/s');
+    } finally {
+      if (server7) server7.close();
+      if (dataDir7) {
+        try {
+          fs.rmSync(dataDir7, { recursive: true, force: true });
         } catch {
           /* best-effort */
         }

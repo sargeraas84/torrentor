@@ -88,6 +88,17 @@ async function main() {
 
   const click = (sel) => js(`(() => { const el = document.querySelector('${sel}'); if (!el) return false; el.click(); return true; })()`);
   const textOf = (sel) => js(`(() => { const el = document.querySelector('${sel}'); return el ? el.textContent : null; })()`);
+  // Keyboard driving: dispatch a real keydown on a specific element (or the
+  // current focus). React's delegated onKeyDown receives the bubbled event
+  // and runs the tray's keyboard contract — no synthetic default actions
+  // (a JS-dispatched Enter does NOT natively click a button), which is
+  // exactly why the app exposes explicit hotkeys for these flows.
+  const keyOn = (sel, key) =>
+    js(`(() => { const el = document.querySelector('${sel}'); if (!el) return false; el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true })); return true; })()`);
+  const keyOnFocused = (key) =>
+    js(`(() => { const el = document.activeElement; if (!el) return false; el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true })); return true; })()`);
+  const focusSel = (sel) =>
+    js(`(() => { const el = document.querySelector('${sel}'); if (!el) return false; el.focus(); return document.activeElement === el; })()`);
 
   await new Promise((resolve) => {
     if (win.webContents.isLoading()) win.webContents.once('did-finish-load', resolve);
@@ -752,19 +763,66 @@ async function main() {
   const forceOnNote = await js(`(() => { const n = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-applied-note"]'); return n ? n.textContent.trim() : null; })()`);
   if (!forceOnNote || !forceOnNote.includes('applied') || !forceOnNote.includes('window forced ON')) defect('applied-plan note shows the forced window + apply time', String(forceOnNote));
   else  ok('plan row note shows a fresh apply with the window forced ON', forceOnNote);
+  // The force toggle is PERSISTED (per-plan): booting the app again would
+  // restore the armed plan with its window forced the same way. Check the
+  // plan record + applied-plan pref both carry force=true right now.
+  const forceOnPrefs = await js(`window.torrentor.getState().then((s) => { const p = (s.prefs.queuePlans || {})['night-cap'] || {}; const ap = s.prefs.appliedQueuePlan || {}; return { recForce: p.force, prefForce: ap.force, name: ap.name }; })`);
+  if (!(forceOnPrefs.recForce === true && forceOnPrefs.prefForce === true && forceOnPrefs.name === 'night-cap')) defect('force toggle persisted ON into the plan record + applied-plan pref', JSON.stringify(forceOnPrefs));
+  else ok('force toggle persisted ON (plan record + applied-plan pref)', JSON.stringify(forceOnPrefs));
   await click(forceBtnSel);
   await waitFor('second click stops the window (forced OFF)',  `(() => { const b = document.querySelector('${forceBtnSel}'); const tag = document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"] [data-testid="dl-chip-plan"]'); return b && b.getAttribute('data-force') === 'off' && b.textContent.includes('Start window') && tag && tag.getAttribute('data-window') === '0' ? true : null; })()`, 6000);
   ok('force button stops the plan window regardless of the clock');
-  // A plain Apply returns the window to clock-following (force auto).
+  const forceOffPrefs = await js(`window.torrentor.getState().then((s) => { const p = (s.prefs.queuePlans || {})['night-cap'] || {}; const ap = s.prefs.appliedQueuePlan || {}; return { recForce: p.force, prefForce: ap.force }; })`);
+  if (!(forceOffPrefs.recForce === false && forceOffPrefs.prefForce === false)) defect('force toggle persisted OFF into the plan record + applied-plan pref', JSON.stringify(forceOffPrefs));
+  else ok('force toggle persisted OFF (plan record + applied-plan pref)');
+  // A plain Apply returns the window to clock-following (force auto) and
+  // clears the persisted toggle — next launch follows the clock again.
   await click('[data-testid="download-tray"] [data-testid="dl-plan-reapply"][data-name="night-cap"]');
   await waitFor('plain Apply returns the window to clock-following', `(() => { const b = document.querySelector('${forceBtnSel}'); return b && b.getAttribute('data-force') === 'auto' ? true : null; })()`, 6000);
-  ok('plain Apply clears the session force (window follows the clock again)');
+  const forceAutoPrefs = await js(`window.torrentor.getState().then((s) => { const p = (s.prefs.queuePlans || {})['night-cap'] || {}; const ap = s.prefs.appliedQueuePlan || {}; return { recForce: p.force === undefined ? null : p.force, prefForce: ap.force === undefined ? null : ap.force }; })`);
+  if (!(forceAutoPrefs.recForce === null && forceAutoPrefs.prefForce === null)) defect('plain Apply cleared the persisted force toggle', JSON.stringify(forceAutoPrefs));
+  else ok('plain Apply clears the persisted force (record + pref back to clock-following)');
   await click('[data-testid="download-tray"] [data-testid="dl-plan-delete"][data-name="fast-track"]');
   await waitFor('plan deleted from the list', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-plan-row"]')].some((r) => r.getAttribute('data-name') === 'fast-track')`, 6000);
   ok('queue plan deleted on demand');
   await click('[data-testid="download-tray"] [data-testid="dl-smart-pop-close"]');
   await waitFor('popover closes on demand', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
   ok('smart-order popover closes on demand');
+  // ---- keyboard-only driving of the smart-order popover ----
+  // With smart order on and files queued, the whole cluster answers to
+  // keys while focus sits inside the tray: i/q open+close, w flips
+  // live ↔ what-if, a applies the preview, r resets it, Escape closes. A
+  // JS-dispatched keydown never triggers native button activation, so
+  // these steps prove the app's own hotkey contract — no clicks at all.
+  if (!(await focusSel('[data-testid="download-tray"] [data-testid="dl-smart-order"]'))) throw new Error('could not focus the smart-order toggle');
+  await keyOnFocused('i');
+  await waitFor('keyboard i opens the popover', `!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
+  ok('keyboard i opens the smart-order popover');
+  await keyOnFocused('w');
+  await waitFor('keyboard w enters what-if mode', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 2`, 6000);
+  ok('keyboard w flips the popover into the what-if preview');
+  await keyOnFocused('a');
+  await wait(400); // apply round-trip (an empty patch commits nothing, but goes through the IPC)
+  const afterKeyApply = await js(`(() => { const pop = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); return pop ? { steps: pop.querySelectorAll('[data-testid="dl-whatif-step"]').length, open: true } : null; })()`);
+  if (!afterKeyApply || afterKeyApply.steps !== 2) throw new Error(`keyboard apply left a bad popover state: ${JSON.stringify(afterKeyApply)}`);
+  ok('keyboard a applies the previewed limits (stays in preview mode)');
+  await keyOnFocused('r');
+  await waitFor('keyboard r resets the preview patch', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 2`, 6000);
+  ok('keyboard r resets the what-if preview');
+  await keyOnFocused('w');
+  await waitFor('keyboard w returns to the live order', `(() => { const tg = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return tg && tg.textContent.includes('What if') && document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 0 ? true : null; })()`, 6000);
+  ok('keyboard w returns to the live queue order');
+  // The single-reducer popover CANNOT leak what-if/preview state across an
+  // open/close cycle: closing (q) and reopening (i) lands on the LIVE order.
+  await keyOnFocused('q');
+  await waitFor('keyboard q closes the popover', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
+  ok('keyboard q closes the smart-order popover');
+  await keyOnFocused('i');
+  await waitFor('reopening lands on the live order (no what-if leak)', `(() => { const tg = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return tg && tg.textContent.includes('What if') && document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-whatif-step"]').length === 0 ? true : null; })()`, 6000);
+  ok('reopen after close lands on the live order — popover state cannot leak across open/close');
+  await keyOnFocused('Escape');
+  await waitFor('keyboard Escape closes the popover', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
+  ok('keyboard Escape closes the smart-order popover');
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order toggles back off', `document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]').getAttribute('data-on') === '0'`, 6000);
   await waitFor('eta reasoning clears when smart order turns off', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"] [data-testid="dl-eta"]')`, 6000);
@@ -799,6 +857,27 @@ async function main() {
     `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); return box && box.getAttribute('data-active') === '' ? true : null; })()`,
     6000
   );
+  // ---- keyboard-only driving of the tray-header plan switcher ----
+  // The switcher is a real <select>: arrows move a PENDING highlight (no
+  // side effects), Enter commits it (apply / clear), Escape cancels back to
+  // the applied plan. Driven entirely by key events — no change dispatch.
+  const switchSel2 = '[data-testid="download-tray"] [data-testid="dl-plan-switch"]';
+  if (!(await focusSel(switchSel2))) throw new Error('could not focus the plan switcher');
+  await keyOnFocused('ArrowDown'); // pending: '' → 'night-cap'
+  await waitFor('arrow highlights the night-cap plan', `(() => { const sel = document.querySelector('${switchSel2}'); return sel && sel.value === 'night-cap' ? true : null; })()`, 6000);
+  await keyOnFocused('Enter'); // commit the pending selection
+  await waitFor('keyboard Enter applies the highlighted plan', `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); const sel = document.querySelector('${switchSel2}'); return box && sel && box.getAttribute('data-active') === 'night-cap' && sel.value === 'night-cap' ? true : null; })()`, 6000);
+  ok('keyboard arrows + Enter apply a plan from the tray switcher');
+  await keyOnFocused('ArrowDown'); // pending: night-cap → Clear applied plan
+  await waitFor('arrow highlights the clear option', `(() => { const sel = document.querySelector('${switchSel2}'); return sel && sel.value === '__clear' ? true : null; })()`, 6000);
+  await keyOnFocused('Escape'); // cancel the pending highlight
+  await waitFor('Escape cancels the pending clear', `(() => { const sel = document.querySelector('${switchSel2}'); const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); return sel && box && sel.value === 'night-cap' && box.getAttribute('data-active') === 'night-cap' ? true : null; })()`, 6000);
+  ok('keyboard Escape cancels a pending switcher selection');
+  await keyOnFocused('ArrowDown');
+  await waitFor('arrow re-highlights the clear option', `(() => { const sel = document.querySelector('${switchSel2}'); return sel && sel.value === '__clear' ? true : null; })()`, 6000);
+  await keyOnFocused('Enter'); // commit the clear
+  await waitFor('keyboard Enter clears the applied plan', `(() => { const box = document.querySelector('[data-testid="download-tray"] [data-testid="dl-plan-switch-box"]'); const sel = document.querySelector('${switchSel2}'); return box && sel && box.getAttribute('data-active') === '' && sel.value === '' ? true : null; })()`, 6000);
+  ok('keyboard arrows + Enter clear the applied plan from the switcher');
   // Lift every limit so the seeded batch drains fast, then confirm the
   // Library view's per-source tallies picked up all completed transfers.
   await js(`(async () => {

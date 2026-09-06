@@ -123,12 +123,15 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   drag-reordered queue with per-transfer limits that
                     #   survive a relaunch, smart-order learned speeds that
                     #   survive, a saved queue plan (folder rule + override)
-                    #   re-applied to the restored queue, and an ARMED
+                    #   re-applied to the restored queue, an ARMED
                     #   schedule-only plan (weekday selector included) whose
                     #   window keeps capping the whole queue in boot #2
-                    #   (measured pacing) — and the night-pill session
-                    #   override resets to follow the clock again in boot #2
-npm run test:ui    # 76-step real-window playtest (real engines): search,
+                    #   (measured pacing), the night-pill session override
+                    #   resets to follow the clock again in boot #2 — and a
+                    #   plan's persisted window-force toggle (per-plan "apply
+                    #   this schedule now") that comes back still forcing the
+                    #   window in boot #2
+npm run test:ui    # 89-step real-window playtest (real engines): search,
                     #   favorites, VPN check, paging, thumbnails, paced demo
                     #   (paused & resumed, queue reordered by drag-and-drop
                     #   + smart order with per-chip ETA/bytes + a popover
@@ -137,15 +140,21 @@ npm run test:ui    # 76-step real-window playtest (real engines): search,
                     #   with an active-window schedule (weekday-restricted,
                     #   via the one-click presets) — applies it, forces its
                     #   window on/off with the row's "apply this schedule
-                    #   now" button, notes the applied plan's provenance,
-                    #   and switches/clears it from the tray header), Settings
-                    #   night mode (weekday presets), a one-click night-pill
-                    #   session override, chip tooltips that break down own
-                    #   limit vs plan window vs night cap, a clickable tray
-                    #   warning when the plan window and night mode overlap
-                    #   at different caps (opens the what-if popover
-                    #   pre-selected), per-source save folder, and a real
-                    #   Archive direct download — needs network
+                    #   now" button (persisted into the plan record + the
+                    #   applied-plan pref, cleared again by a plain Apply),
+                    #   notes the applied plan's provenance, and
+                    #   switches/clears it from the tray header — all of
+                    #   which is ALSO driven keyboard-only (i/q open+close
+                    #   the popover, w flips live↔what-if, a applies, r
+                    #   resets, Esc closes; the plan switcher answers to
+                    #   arrows + Enter), Settings night mode (weekday
+                    #   presets), a one-click night-pill session override,
+                    #   chip tooltips that break down own limit vs plan
+                    #   window vs night cap, a clickable tray warning when
+                    #   the plan window and night mode overlap at different
+                    #   caps (opens the what-if popover pre-selected),
+                    #   per-source save folder, and a real Archive direct
+                    #   download — needs network
 npm run dist       # electron-builder → Windows installer + portable .exe in dist-exe/
 ```
 

@@ -509,6 +509,103 @@ async function phaseNightVerify(win) {
   app.exit(0);
 }
 
+// Scenario 7: a plan's WINDOW FORCE (the per-plan toggle) must survive a
+// relaunch the way the armed plan itself already does. Boot #1 applies a
+// schedule-only plan with force=TRUE — the per-plan toggle — so its window
+// cap binds RIGHT NOW regardless of the clock, and quits mid-flight. Boot
+// #2 must come back with the plan still armed AND still forced on (the
+// persisted toggle re-applied at boot), and the 40 KB/s cap still pacing.
+async function phaseForceStart(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Smart order on, then a schedule-only plan whose window is OUTSIDE the
+  // normal run hours (23:00–07:00): its cap only binds because the force
+  // makes it active regardless of the clock — the strongest proof the
+  // toggle is what survived. (If the suite genuinely runs at 3 AM the
+  // window is naturally active too, so the force assertions below are the
+  // real check either way.)
+  await js(`window.torrentor.setSmartOrder(true)`);
+  const urls = [0, 1, 2, 3].map((i) => `${BASE}force-${i}.bin`);
+  const results = [];
+  for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
+  const ts = results.map((r) => r && r.transfer);
+  if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('force seed transfers did not start cleanly');
+  await js(`Promise.all([${ts.map((t) => t.id).join(',')}].map((id) => window.torrentor.setDownloadLimit(id, 524288)))`);
+  // Save a SCHEDULE-ONLY plan (zero entries) and apply it with force=true
+  // through the real IPC — the apply persists BOTH the arm and the window
+  // force into the plan record + prefs.appliedQueuePlan.
+  const saved = await js(`window.torrentor.saveQueuePlan('boot-force', {}, {}, ${JSON.stringify({ from: '23:00', to: '07:00', bytesPerSec: 40960 })})`);
+  const rec = (saved && saved['boot-force']) || null;
+  if (!rec || !rec.schedule || rec.entries.length !== 0) throw new Error(`force plan not saved as schedule-only: ${JSON.stringify(rec)}`);
+  const res = await js(`window.torrentor.applyQueuePlan('boot-force', true)`);
+  const info = res && res.appliedPlan;
+  if (!info || info.name !== 'boot-force' || info.force !== true || !info.windowActive) {
+    throw new Error(`boot#1 did not arm the plan with its window forced ON: ${JSON.stringify(info)}`);
+  }
+  if (info.restored !== false || !info.appliedAt) throw new Error(`boot#1 apply provenance missing: ${JSON.stringify(info)}`);
+  // The toggle must have PERSISTED into both the plan record and the
+  // applied-plan pref — that is what boot #2 restores from.
+  const prefs = await js(`window.torrentor.getState().then((s) => s.prefs || {})`);
+  const planRec = (prefs.queuePlans || {})['boot-force'] || null;
+  const apPref = prefs.appliedQueuePlan || null;
+  if (!planRec || planRec.force !== true) throw new Error(`plan record lost the force toggle: ${JSON.stringify(planRec)}`);
+  if (!apPref || apPref.force !== true || apPref.name !== 'boot-force') throw new Error(`applied-plan pref lost the force toggle: ${JSON.stringify(apPref)}`);
+  console.log('FORCE_BOOT1_ARMED name=boot-force force=true windowActive=true');
+  // Give the persisted prefs a beat to flush before quitting mid-flight.
+  await new Promise((r) => setTimeout(r, 700));
+  console.log('FORCE_BOOT1_QUITTING');
+  setTimeout(() => app.exit(0), 4000);
+  app.quit();
+}
+
+async function phaseForceVerify(win) {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  // Boot #2 must restore the armed plan AND its window force: name
+  // boot-force, force STILL true, window active (the cap binds even though
+  // the 23:00–07:00 window may be outside the clock right now).
+  const info = await waitFor(
+    'boot#2 restored the armed plan with its force toggle ON',
+    () => js(`window.torrentor.getAppliedPlan().then((i) => (i && i.name === 'boot-force' && i.force === true && i.windowActive ? i : null))`),
+    20000
+  );
+  if (info.restored !== true || !info.appliedAt) throw new Error(`boot#2 force arm not marked restored with appliedAt: ${JSON.stringify(info)}`);
+  const prefs2 = await js(`window.torrentor.getState().then((s) => s.prefs || {})`);
+  const planRec2 = (prefs2.queuePlans || {})['boot-force'] || null;
+  const apPref2 = prefs2.appliedQueuePlan || null;
+  if (!planRec2 || planRec2.force !== true) throw new Error(`boot#2 plan record lost the force toggle: ${JSON.stringify(planRec2)}`);
+  if (!apPref2 || apPref2.force !== true) throw new Error(`boot#2 applied-plan pref lost the force toggle: ${JSON.stringify(apPref2)}`);
+  console.log('FORCE_BOOT2_FORCE_OK name=boot-force force=true windowActive=true restored=true');
+  // The cap must be REAL: measure a restored active transfer's byte growth
+  // over ~1.6 s. At the 40 KB/s forced window cap that is ~64 KB; if the
+  // force failed to survive (and the 23:00–07:00 window is outside the
+  // clock), the local server paces ~400 KB/s and it would be ~640 KB.
+  const active0 = await waitFor(
+    'boot#2 a restored transfer is actively downloading',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const a = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)})).find((t) => t.status === 'downloading');
+        return a ? { id: a.id, received: a.received } : null;
+      })()`),
+    30000
+  );
+  await new Promise((r) => setTimeout(r, 1600));
+  const after = await js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const a = list.find((t) => t.id === ${active0.id});
+        return a ? { received: a.received, status: a.status } : null;
+      })()`);
+  if (!after || after.status !== 'downloading') throw new Error(`boot#2 active transfer finished during the pacing window: ${JSON.stringify(after)}`);
+  const delta = after.received - active0.received;
+  if (delta < 20000 || delta > 150000) throw new Error(`boot#2 pacing not capped by the restored force: delta=${delta} over 1.6s`);
+  console.log(`FORCE_BOOT2_PACED_OK delta=${delta} over 1.6s (~40 KB/s forced cap)`);
+  try {
+    fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+  app.exit(0);
+}
+
 async function phasePauseStart(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const started = await js(`window.torrentor.downloadFile(${JSON.stringify(DL_URL)})`);
@@ -614,6 +711,8 @@ async function main() {
     else if (PHASE === 'plan-verify') await phasePlanVerify(win);
     else if (PHASE === 'night-start') await phaseNightStart(win);
     else if (PHASE === 'night-verify') await phaseNightVerify(win);
+    else if (PHASE === 'force-start') await phaseForceStart(win);
+    else if (PHASE === 'force-verify') await phaseForceVerify(win);
     else throw new Error(`Unknown phase ${PHASE}`);
   } catch (err) {
     fail(String((err && err.message) || err).slice(0, 300));
