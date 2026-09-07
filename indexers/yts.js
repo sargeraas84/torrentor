@@ -14,14 +14,14 @@ const ENGINE = {
   id: 'yts',
   name: 'YTS',
   homepage: 'https://web.yts.gg/',
-  tagline: 'HD movie catalog via the official YTS web host — opt-in, off by default.',
+  tagline: 'HD movie catalog at web.yts.gg via its official API — opt-in, off by default.',
   kind: 'community',
   demo: false,
   probe: 'open movie',
   defaultEnabled: false,
 };
 
-const API = 'https://web.yts.gg/api/v2/list_movies.json';
+const API = 'https://movies-api.accel.li/api/v2/list_movies.json';
 const HOMEPAGE = 'https://web.yts.gg/';
 const MAX_RESULTS = 50;
 const ADULT_WORDS = /(?:porn|xxx|hentai|sex\s*film|adult\s*film)/i;
@@ -98,4 +98,4 @@ async function search(query, ctx) {
   return cleanResponse(data, q).map((item) => normalizeResult(item, ENGINE));
 }
 
-module.exports = { engine: ENGINE, search, matchesQuery, isAllowedTitle, bestTorrent, normalizeMovie, cleanResponse };
+module.exports = { engine: ENGINE, search, API, HOMEPAGE, matchesQuery, isAllowedTitle, bestTorrent, normalizeMovie, cleanResponse };

@@ -10,6 +10,7 @@ module.exports = makeHtmlEngine({
   probe: 'ubuntu',
   baseUrl: 'https://1337x.to/',
   searchUrl: (q) => `https://1337x.to/search/${encodeURIComponent(q)}/1/`,
+  blockedMessage: '1337x is blocking automated requests (HTTP 403); open the source page in a browser or retry later.',
   category: 'other',
   link: (url) => /\/torrent\//i.test(url),
 });

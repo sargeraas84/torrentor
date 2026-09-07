@@ -540,8 +540,10 @@ async function main() {
     }
   });
 
-  ok('requested community engine homepages use the canonical supplied URLs', () => {
+  ok('requested community engine homepages and API endpoints are canonical', () => {
+    const yts = require('../indexers/yts');
     assert.strictEqual(registry.get('yts').homepage, 'https://web.yts.gg/');
+    assert.strictEqual(yts.API, 'https://movies-api.accel.li/api/v2/list_movies.json');
     assert.strictEqual(registry.get('1337x').homepage, 'https://1337x.to/');
     assert.strictEqual(registry.get('nyaa').homepage, 'https://nyaa.si/');
   });

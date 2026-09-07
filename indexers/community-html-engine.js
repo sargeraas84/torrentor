@@ -28,7 +28,11 @@ function makeHtmlEngine(config) {
       });
     } catch (err) {
       if (ctx.signal && ctx.signal.aborted) throw err;
-      throw new Error(`${config.name} unreachable (${String((err && err.message) || err).slice(0, 80)})`);
+      const message = String((err && err.message) || err);
+      if (config.blockedMessage && /HTTP 403/i.test(message)) {
+        throw new Error(config.blockedMessage);
+      }
+      throw new Error(`${config.name} unreachable (${message.slice(0, 80)})`);
     }
     return parseSearchPage(html, q, {
       baseUrl: config.baseUrl,
