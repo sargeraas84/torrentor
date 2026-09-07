@@ -61,10 +61,10 @@
             <p class="sub">
               Torrentor fans a single search out to Internet Archive, official Ubuntu &amp; Debian
               releases, Arch Linux and more — in parallel, merged by infohash, streamed in as each
-              source answers. No accounts. No telemetry. No piracy scrapers.
+              source answers. No accounts. No telemetry. Twelve allowlisted choices, with community sources opt-in.
             </p>
             <div class="meta-line">
-              <span><b>4</b> sources · allowlisted</span>
+              <span><b>12</b> sources · allowlisted</span>
               <span><b>1</b> merged result list</span>
               <span><b>0</b> fabricated results</span>
               <span>open source · <b>MIT-friendly</b></span>
@@ -85,7 +85,7 @@
 
           <!-- app mockup -->
           <div class="mock rv" data-d="2" aria-hidden="true">
-            <span class="float-chip fc1"><b>37</b> unique results · 4/4 sources</span>
+            <span class="float-chip fc1"><b>37</b> unique results · 4/7 sources</span>
             <span class="float-chip fc2">real before demo · <b>always</b></span>
             <span class="float-chip fc3">honest gate on</span>
             <div class="bezel">
@@ -104,6 +104,8 @@
                     <span class="chip on">Linux releases</span>
                     <span class="chip on">Arch Linux</span>
                     <span class="chip">Demo</span>
+                    <span class="chip">Nyaa</span>
+                    <span class="chip">YTS</span>
                   </div>
                   <div class="mock-card">
                     <div class="thumb">
@@ -301,6 +303,51 @@
               </div>
             </div></div>
           </div>
+          <div class="cell rv" data-d="5">
+            <div class="bezel"><div class="core">
+              <div class="src-idx">N</div>
+              <div>
+                <h3>Nyaa</h3>
+                <p class="src-tag">community · <b>opt-in</b></p>
+                <p>RSS-backed anime and media search with magnets, hashes, sizes and seeders. Disabled on fresh installs and adult categories are filtered.</p>
+              </div>
+            </div></div>
+          </div>
+          <div class="cell rv" data-d="6">
+            <div class="bezel"><div class="core">
+              <div class="src-idx">Y</div>
+              <div>
+                <h3>YTS</h3>
+                <p class="src-tag">community · <b>opt-in</b></p>
+                <p>Movie search through the YTS JSON catalog with quality-aware torrent choices, magnets and <code>.torrent</code> links.</p>
+              </div>
+            </div></div>
+          </div>
+          <div class="cell rv" data-d="7">
+            <div class="bezel"><div class="core">
+              <div class="src-idx">P</div>
+              <div>
+                <h3>The Pirate Bay</h3>
+                <p class="src-tag">community · <b>opt-in</b></p>
+                <p>The apibay mirror provides rich infohash, seeder, size and age metadata. It stays disabled by default and filters adult categories.</p>
+              </div>
+            </div></div>
+          </div>
+                  <div class="cell rv" data-d="8">
+                    <div class="bezel"><div class="core"><div class="src-idx">1</div><div><h3>1337x</h3><p class="src-tag">community · <b>opt-in</b></p><p>Movie and TV search through the <code>x1337x.eu</code> mirror.</p></div></div></div>
+                  </div>
+          <div class="cell rv" data-d="9">
+            <div class="bezel"><div class="core"><div class="src-idx">E</div><div><h3>EZTV</h3><p class="src-tag">community · <b>opt-in</b></p><p>TV-show-focused search through the public <code>eztvx.to</code> API.</p></div></div></div>
+          </div>
+          <div class="cell rv" data-d="10">
+            <div class="bezel"><div class="core"><div class="src-idx">T</div><div><h3>TorrentDownloads</h3><p class="src-tag">community · <b>opt-in</b></p><p>A broad index for harder-to-find content.</p></div></div></div>
+          </div>
+          <div class="cell rv" data-d="11">
+            <div class="bezel"><div class="core"><div class="src-idx">L</div><div><h3>LimeTorrents</h3><p class="src-tag">community · <b>opt-in</b></p><p>A community index focused on new releases.</p></div></div></div>
+          </div>
+          <div class="cell rv" data-d="12">
+            <div class="bezel"><div class="core"><div class="src-idx">F</div><div><h3>FitGirl Repacks</h3><p class="src-tag">community · <b>opt-in</b></p><p>The official game-repack catalog, linked back to its source pages.</p></div></div></div>
+          </div>
         </div>
 
         <div class="bezel rv" style="margin-top: 18px;">
@@ -374,7 +421,25 @@
         <div style="max-width: 680px;">
           <span class="eyebrow rv"><span class="dot"></span>Get Torrentor</span>
           <h2 class="rv" data-d="1">Windows &amp; macOS.<br />Built from <span class="grad">source</span> in seconds.</h2>
-          <p class="lead rv" data-d="2">Requires Node.js 20+. The 1.2 release ships a Windows installer and portable <code>.exe</code>, plus a universal macOS <code>.dmg</code> — or three commands get you a running app from source.</p>
+          <p class="lead rv" data-d="2">Download the latest prebuilt release for Windows or macOS, or use the source-build commands below. No Node.js installation is needed for the installers.</p>
+        </div>
+
+        <div class="bezel rv" data-d="3" style="max-width: 760px; margin-top: 20px;">
+          <div class="core" style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+              <div>
+                <h3 style="margin-bottom: 4px;">v1.4.10 installers</h3>
+                <p style="color: var(--mut); font-size: 13px; margin: 0;">Prebuilt downloads from the published GitHub release.</p>
+              </div>
+              <a class="btn ghost" href="https://github.com/sargeraas84/torrentor/releases/tag/v1.4.10">Release notes ↗</a>
+            </div>
+            <div style="display: flex; gap: 9px; flex-wrap: wrap;">
+              <a class="btn" href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.10/Torrentor-Setup-1.4.10.exe">Windows installer <span class="ic" aria-hidden="true">↓</span></a>
+              <a class="btn ghost" href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.10/Torrentor-1.4.10-portable.exe">Windows portable <span class="ic" aria-hidden="true">↓</span></a>
+              <a class="btn ghost" href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.10/Torrentor-1.4.10-mac-universal.dmg">macOS universal DMG <span class="ic" aria-hidden="true">↓</span></a>
+              <a class="btn ghost" href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.10/Torrentor-1.4.10-mac-universal.zip">macOS universal ZIP <span class="ic" aria-hidden="true">↓</span></a>
+            </div>
+          </div>
         </div>
 
         <div style="max-width: 760px; margin-top: 20px;">
@@ -391,7 +456,7 @@
             <button class="cpy" type="button">copy</button>
           </div>
           <div class="note rv" data-d="4">
-            <b>Why source-first?</b> Torrentor is open source on GitHub — no installer you can't inspect, no telemetry, no accounts. The 1.2 release ships prebuilt installers for Windows (installer + portable <code>.exe</code>) and macOS (universal <code>.dmg</code>); <code>npm run dist</code> produces the same locally. macOS builds are unsigned, so the first launch is right-click → <b>Open</b> — normal for open-source apps.
+            <b>Why source-first?</b> Torrentor is open source on GitHub — no telemetry, no accounts, and the installer can be inspected or replaced with a local build. The v1.4.10 release provides Windows installer + portable <code>.exe</code> and macOS universal <code>.dmg</code> + <code>.zip</code>. macOS builds are unsigned, so the first launch is right-click → <b>Open</b> — normal for open-source apps.
           </div>
         </div>
       </div>
