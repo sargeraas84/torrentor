@@ -13,16 +13,16 @@ const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
 const ENGINE = {
   id: 'yts',
   name: 'YTS',
-  homepage: 'https://yts.proxyninja.org/',
-  tagline: 'HD movie catalog via the requested ProxyNinja mirror — opt-in, off by default.',
+  homepage: 'https://web.yts.gg/',
+  tagline: 'HD movie catalog via the official YTS web host — opt-in, off by default.',
   kind: 'community',
   demo: false,
   probe: 'open movie',
   defaultEnabled: false,
 };
 
-const API = 'https://yts.proxyninja.org/api/v2/list_movies.json';
-const HOMEPAGE = 'https://yts.proxyninja.org/';
+const API = 'https://web.yts.gg/api/v2/list_movies.json';
+const HOMEPAGE = 'https://web.yts.gg/';
 const MAX_RESULTS = 50;
 const ADULT_WORDS = /(?:porn|xxx|hentai|sex\s*film|adult\s*film)/i;
 
@@ -70,7 +70,7 @@ function normalizeMovie(movie, query) {
     uploadedAt: movie.date_uploaded ? Date.parse(movie.date_uploaded) : null,
     infohash,
     torrentUrl: torrent.url,
-    pageUrl: movie.url || (movie.slug ? `https://yts.proxyninja.org/movies/${movie.slug}` : 'https://yts.proxyninja.org/'),
+    pageUrl: movie.url || (movie.slug ? `https://web.yts.gg/movies/${movie.slug}` : HOMEPAGE),
     thumbnail: movie.medium_cover_image || movie.large_cover_image || null,
     relevance: tokenHitScore(query, title),
   };

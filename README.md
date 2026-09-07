@@ -63,11 +63,11 @@ network. Default sources are **legal-friendly**, so a fresh install is useful an
 6. **Nyaa** *(opt-in, off by default)* — an RSS-backed anime/media community index
    with magnets, hashes, sizes and seeder counts. It is disabled on fresh installs;
    its adult category is filtered before results reach the UI.
-7. **YTS** *(opt-in, off by default)* — a community movie catalog with selectable
-   quality releases, magnets and `.torrent` links. It is disabled on fresh installs;
+7. **YTS** *(opt-in, off by default)* — a community movie catalog at `web.yts.gg`
+   with selectable quality releases, magnets and `.torrent` links. It is disabled on fresh installs;
    review the provider's content policy before enabling it.
 8. **1337x** *(opt-in, off by default)* — a community movie and TV index exposed
-   through the requested `x1337x.eu` mirror.
+   through the requested `1337x.to` site.
 9. **EZTV** *(opt-in, off by default)* — a TV-show-focused public API adapter using
    `eztvx.to`.
 10. **TorrentDownloads** *(opt-in, off by default)* — a broad community search

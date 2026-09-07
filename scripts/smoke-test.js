@@ -540,6 +540,12 @@ async function main() {
     }
   });
 
+  ok('requested community engine homepages use the canonical supplied URLs', () => {
+    assert.strictEqual(registry.get('yts').homepage, 'https://web.yts.gg/');
+    assert.strictEqual(registry.get('1337x').homepage, 'https://1337x.to/');
+    assert.strictEqual(registry.get('nyaa').homepage, 'https://nyaa.si/');
+  });
+
   // ---------------------------- engine health ---------------------------
   const { runHealthChecks } = require('../lib/health');
   const fakeEngine = (id, impl) => ({
