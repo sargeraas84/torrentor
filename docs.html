@@ -95,7 +95,7 @@
               </div>
               <div class="card">
                 <h3 style="margin-bottom: 8px;">Help test the current build</h3>
-                <p>Download the published <b>v1.4.11</b> installers from the <a href="index.html#download">website download section</a>, try the offline <b>Demo</b> source first, and report reproducible bugs or usability feedback on <a href="https://github.com/sargeraas84/torrentor/issues">GitHub Issues ↗</a>. Include your OS, app version, steps to reproduce, and relevant logs; never post passwords, private files, IP addresses, or other personal data.</p>
+                <p>Download the published <b>v1.4.12</b> installers from the <a href="index.html#download">website download section</a>, try the offline <b>Demo</b> source first, and report reproducible bugs or usability feedback on <a href="https://github.com/sargeraas84/torrentor/issues">GitHub Issues ↗</a>. Include your OS, app version, steps to reproduce, and relevant logs; never post passwords, private files, IP addresses, or other personal data.</p>
                 <p style="margin-bottom: 0; color: var(--mut2);">Only enable optional community sources and download or share material you are legally entitled to access. The project is also available on <a href="https://github.com/sargeraas84/torrentor">GitHub ↗</a> for source review and contributions.</p>
               </div>
               <p>Searching works out of the box: type <b>ubuntu</b>, <b>blender open movie</b> or <b>moby dick audiobook</b> and hit enter. With zero network, the <b>Demo</b> engine still shows the full flow (every Demo card is labeled).</p>
@@ -188,7 +188,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li><b>Bump + changelog.</b> Raise <code>version</code> in <code>package.json</code>, add the <a href="#changelog">changelog</a> entry, commit, push, and again wait for <code>ci</code> to go green.</li>
                   <li><b>Tag and push.</b> <code>git tag vX.Y.Z && git push origin vX.Y.Z</code> — the <b>release</b> workflow builds Windows (installer + portable <code>.exe</code>) and macOS (universal <code>.dmg</code> + <code>.zip</code>), then opens a <b>draft release</b> with all four archives attached.</li>
                   <li><b>Check the draft.</b> All four artifacts present, none of the unpacked app dirs.</li>
-                  <li><b>Smoke it.</b> Download an installer and confirm fresh-install behavior — the published v1.4.11 assets are linked from the <a href="https://github.com/sargeraas84/torrentor/releases/tag/v1.4.11">release page ↗</a>, and opt-in community sources stay off until the user enables them.</li>
+                  <li><b>Smoke it.</b> Download an installer and confirm fresh-install behavior — the published v1.4.12 assets are linked from the <a href="https://github.com/sargeraas84/torrentor/releases/tag/v1.4.12">release page ↗</a>, and opt-in community sources stay off until the user enables them.</li>
                   <li><b>Publish</b> the draft from the Releases page when ready. That's the whole process — the download badge updates itself.</li>
                 </ol>
               </div>
@@ -199,11 +199,11 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <h2>Changelog</h2>
               <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
               <div class="card">
-                <h3 style="margin-bottom: 4px;">Installer downloads — v1.4.11</h3>
+                <h3 style="margin-bottom: 4px;">Installer downloads — v1.4.12</h3>
                 <p>The website download section links directly to all four published artifacts:</p>
                 <ul>
-                  <li><a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.11/Torrentor-Setup-1.4.11.exe"><b>Windows installer</b></a> · <a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.11/Torrentor-1.4.11-portable.exe">Windows portable</a></li>
-                  <li><a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.11/Torrentor-1.4.11-mac-universal.dmg"><b>macOS universal DMG</b></a> · <a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.11/Torrentor-1.4.11-mac-universal.zip">macOS universal ZIP</a></li>
+                  <li><a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.12/Torrentor-Setup-1.4.12.exe"><b>Windows installer</b></a> · <a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.12/Torrentor-1.4.12-portable.exe">Windows portable</a></li>
+                  <li><a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.12/Torrentor-1.4.12-mac-universal.dmg"><b>macOS universal DMG</b></a> · <a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.12/Torrentor-1.4.12-mac-universal.zip">macOS universal ZIP</a></li>
                 </ul>
               </div>
               <div class="card">
