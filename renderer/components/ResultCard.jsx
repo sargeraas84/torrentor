@@ -1,5 +1,6 @@
 'use strict';
 const React = require('react');
+const { createPortal } = require('react-dom');
 const { useState, useRef, useEffect } = require('react');
 const { I, CatGlyph, CATEGORY_META } = require('./icons');
 const fmt = require('../../lib/format');
@@ -35,17 +36,43 @@ function SourceBadges({ result }) {
   );
 }
 
-function Menu({ result, isFav, onAction }) {
+function Menu({ result, isFav, onAction, onOpenChange }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [menuPos, setMenuPos] = useState(null);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const portalRef = useRef(null);
+  const setMenuOpen = (next) => {
+    if (next && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+    } else if (!next) {
+      setMenuPos(null);
+    }
+    setOpen(next);
+    if (onOpenChange) onOpenChange(next);
+  };
 
   useEffect(() => {
     if (!open) return undefined;
     const onDoc = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      const inRoot = rootRef.current && rootRef.current.contains(e.target);
+      const inPortal = portalRef.current && portalRef.current.contains(e.target);
+      if (!inRoot && !inPortal) setMenuOpen(false);
+    };
+    const reposition = () => {
+      if (!buttonRef.current) return;
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
     };
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
   }, [open]);
 
   const items = [];
@@ -60,29 +87,32 @@ function Menu({ result, isFav, onAction }) {
   items.push({ key: 'fav', label: isFav ? 'Remove favorite' : 'Save favorite', icon: <I.starOutline size={14} />, fn: () => onAction('fav', result) });
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={rootRef} style={{ position: 'relative' }}>
       <button
+        ref={buttonRef}
         type="button"
         className="app-nodrag"
         aria-label="More actions"
         style={iconBtn}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setMenuOpen(!open)}
       >
         <I.more size={16} />
       </button>
-      {open && (
+      {open && menuPos && createPortal(
         <div
+          ref={portalRef}
           className="fade-in"
           style={{
-            position: 'absolute',
-            right: 0,
-            top: 'calc(100% + 6px)',
-            zIndex: 40,
+            position: 'fixed',
+            top: menuPos.top,
+            right: menuPos.right,
+            zIndex: 1000,
             minWidth: 205,
             background: '#0f1a2e',
+            opacity: 1,
             border: '1px solid #22314b',
             borderRadius: 10,
-            boxShadow: '0 16px 40px rgba(0,0,0,.55)',
+            boxShadow: '0 16px 40px rgba(0,0,0,.7)',
             padding: 5,
           }}
         >
@@ -106,7 +136,7 @@ function Menu({ result, isFav, onAction }) {
                 cursor: 'pointer',
               }}
               onClick={() => {
-                setOpen(false);
+                setMenuOpen(false);
                 it.fn();
               }}
             >
@@ -114,7 +144,8 @@ function Menu({ result, isFav, onAction }) {
               {it.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -153,6 +184,7 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle, onDo
   // Archive.org cards carry a poster thumbnail; render it (falling back
   // to the category tile when the image can't load).
   const [thumbFailed, setThumbFailed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const showThumb = !!result.thumbnail && !result.demo && !thumbFailed;
 
   const doAction = (kind, payload) => {
@@ -182,6 +214,11 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle, onDo
         border: '1px solid #16253d',
         borderRadius: 13,
         alignItems: 'flex-start',
+        position: 'relative',
+        // Each result card animates independently; raise the owning card
+        // while its overflow menu is open so later cards cannot paint over
+        // the menu's otherwise-opaque surface.
+        zIndex: menuOpen ? 100 : 0,
         transition: 'border-color .15s, background .15s',
       }}
       onMouseEnter={(e) => {
@@ -412,7 +449,7 @@ module.exports = function ResultCard({ result, isFav, onToast, onFavToggle, onDo
             .torrent
           </button>
         )}
-        <Menu result={result} isFav={isFav} onAction={doAction} />
+        <Menu result={result} isFav={isFav} onAction={doAction} onOpenChange={setMenuOpen} />
       </div>
     </div>
   );
