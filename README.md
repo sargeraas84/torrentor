@@ -60,6 +60,26 @@ network. Default sources are **legal-friendly**, so a fresh install is useful an
    the apibay JSON mirror: rich cards (infohash, seeders, size, age). This is **not**
    a legal-friendly source, so it ships **disabled** — enable it in Settings → Search
    sources if you want it. Adult categories are always filtered client-side.
+6. **Nyaa** *(opt-in, off by default)* — an RSS-backed anime/media community index
+   with magnets, hashes, sizes and seeder counts. It is disabled on fresh installs;
+   its adult category is filtered before results reach the UI.
+7. **YTS** *(opt-in, off by default)* — a community movie catalog with selectable
+   quality releases, magnets and `.torrent` links. It is disabled on fresh installs;
+   review the provider's content policy before enabling it.
+8. **1337x** *(opt-in, off by default)* — a community movie and TV index exposed
+   through the requested `x1337x.eu` mirror.
+9. **EZTV** *(opt-in, off by default)* — a TV-show-focused public API adapter using
+   `eztvx.to`.
+10. **TorrentDownloads** *(opt-in, off by default)* — a broad community search
+    source aimed at harder-to-find content, using `torrentdownloads.pro`.
+11. **LimeTorrents** *(opt-in, off by default)* — a community search source aimed
+    at new releases, using `limetorrents.info`.
+12. **FitGirl Repacks** *(opt-in, off by default)* — the official game-repack
+    catalog at `fitgirl-repacks.site`; cards link back to the source for details.
+
+All community sources are deliberately separate choices: enabling one does not enable
+the others. Toggle them under **Settings → Search sources**; all searches still pass
+through Torrentor's proxy-aware network client.
 
 ### Adding more providers
 
@@ -114,7 +134,7 @@ Requires **Node.js 20+**.
 ```bash
 npm install        # installs deps (Electron included)
 npm run dev        # build + launch the app
-npm test           # 91 pure-Node checks (no window, no network)
+npm test           # pure-Node checks (no window, no network)
 npm run test:electron   # boots the real app headlessly and drives it over IPC
 npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   a genuine download, quits mid-flight, relaunches, and
@@ -134,8 +154,10 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   what-if popover: a schedule plan's weekday selector +
                     #   folder rule survive the relaunch and the stray
                     #   (un-applied) preview never leaks into the restored
-                    #   queue
-npm run test:ui    # 94-step real-window playtest (real engines): search,
+                    #   queue, including a paused-vs-active slot-layout
+                    #   check and every per-file limit after quitting from
+                    #   inside the popover
+npm run test:ui    # 99-step real-window playtest (real engines): search,
                     #   favorites, VPN check, paging, thumbnails, paced demo
                     #   (paused & resumed, queue reordered by drag-and-drop
                     #   + smart order with per-chip ETA/bytes + a popover
@@ -155,7 +177,10 @@ npm run test:ui    # 94-step real-window playtest (real engines): search,
                     #   tray control, and pressing the hotkeys while typing
                     #   in the plan-name input never fires them; a one-time
                     #   keyboard-shortcuts hint teaches the hotkeys on
-                    #   first use (dismissed forever after),
+                    #   first use (dismissed forever after), auto-hides
+                    #   after 10 seconds without interaction, and the
+                    #   Settings → About help menu shows the full shortcut
+                    #   card once using the same seen flag,
                     #   Settings night mode (weekday
                     #   presets), a one-click night-pill session override,
                     #   chip tooltips that break down own limit vs plan
@@ -202,7 +227,17 @@ torrentor/
 │   ├── demo-curated.js     #   offline sample corpus (clearly labeled, synthetic infohashes)
 │   ├── archive-org.js      #   Internet Archive advancedsearch → _archive.torrent URLs
 │   ├── distro-releases.js  #   Ubuntu/Debian official ISO torrents
-│   └── arch-releases.js    #   Arch Linux official ISO torrents (releng JSON feed)
+│   ├── arch-releases.js    #   Arch Linux official ISO torrents (releng JSON feed)
+│   ├── piratebay.js        #   The Pirate Bay community API adapter (opt-in)
+│   ├── nyaa.js             #   Nyaa RSS adapter (opt-in)
+│   ├── yts.js              #   YTS movie JSON adapter (opt-in)
+│   ├── 1337x.js             #   1337x community HTML adapter (opt-in)
+│   ├── eztv.js              #   EZTV TV API adapter (opt-in)
+│   ├── torrentdownloads.js  #   TorrentDownloads HTML adapter (opt-in)
+│   ├── limetorrents.js      #   LimeTorrents HTML adapter (opt-in)
+│   ├── fitgirl.js           #   FitGirl Repacks HTML adapter (opt-in)
+│   ├── community-html.js    #   conservative shared HTML parser
+│   └── community-html-engine.js # shared adapter factory
 ├── lib/
 │   ├── orchestrator.js     # parallel fan-out, live snapshots, dedupe/merge by infohash, sort
 │   ├── health.js           # per-source health self-test (known-good probe queries)

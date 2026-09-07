@@ -25,6 +25,7 @@ const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
 const ENGINE = {
   id: 'piratebay',
   name: 'The Pirate Bay',
+  homepage: 'https://apibay.org/',
   tagline: 'Community index via the apibay mirror — opt-in source, off by default.',
   kind: 'community',
   demo: false,

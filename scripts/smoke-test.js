@@ -439,6 +439,107 @@ async function main() {
     assert.ok(pb.cleanRows(Array.from({ length: 80 }, (_, i) => mk(i, i)), 'ubuntu').length <= 50, 'capped at 50');
   });
 
+  // ----------------------------- Nyaa helpers ---------------------------
+  const nyaa = require('../indexers/nyaa');
+  ok('nyaa RSS parser normalizes torrent metadata and filters adult rows', () => {
+    const xml = `<rss><channel>
+      <item><title><![CDATA[Show Name - 01 [1080p]]]></title><link>https://nyaa.si/view/123</link><guid>https://nyaa.si/view/123</guid><pubDate>Tue, 01 Sep 2026 12:00:00 GMT</pubDate><nyaa:seeders>42</nyaa:seeders><nyaa:leechers>3</nyaa:leechers><nyaa:downloads>100</nyaa:downloads><nyaa:infoHash>abcdefabcdefabcdefabcdefabcdefabcdefabcd</nyaa:infoHash><nyaa:size>1.5 GiB</nyaa:size><nyaa:categoryId>1_2</nyaa:categoryId></item>
+      <item><title>Adult result</title><link>https://nyaa.si/view/456</link><nyaa:infoHash>1111111111111111111111111111111111111111</nyaa:infoHash><nyaa:categoryId>1_5</nyaa:categoryId></item>
+    </channel></rss>`;
+    const out = nyaa.cleanFeed(xml, 'show name');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].infohash, 'abcdefabcdefabcdefabcdefabcdefabcdefabcd');
+    assert.strictEqual(out[0].sizeBytes, Math.round(1.5 * 1024 ** 3));
+    assert.strictEqual(out[0].seeders, 42);
+    assert.ok(out[0].torrentUrl.includes('/view/123'));
+    assert.ok(out[0].magnet == null, 'base normalization adds the magnet later');
+    assert.strictEqual(nyaa.allowedCategory('1_5'), false);
+  });
+  ok('nyaa RSS parser tolerates malformed feeds and query mismatches', () => {
+    assert.deepStrictEqual(nyaa.cleanFeed('', 'anime'), []);
+    assert.deepStrictEqual(nyaa.cleanFeed('<rss><item><title>Unrelated</title></item></rss>', 'anime'), []);
+    assert.strictEqual(nyaa.parseSize('700 MiB'), 700 * 1024 ** 2);
+    assert.strictEqual(nyaa.parseSize('unknown'), null);
+  });
+
+  // ------------------------------ YTS helpers ---------------------------
+  const yts = require('../indexers/yts');
+  ok('yts JSON parser normalizes movie torrents and filters adult titles', () => {
+    const data = {
+      data: {
+        movies: [
+          {
+            id: 7,
+            title: 'Open Movie',
+            year: 2026,
+            url: 'https://yts.mx/movies/open-movie',
+            torrents: [
+              { hash: '2222222222222222222222222222222222222222', quality: '720p', size_bytes: 700000000, seeds: 31, peers: 2, url: 'https://yts.mx/torrent/open.torrent' },
+            ],
+          },
+          {
+            id: 8,
+            title: 'Adult XXX Movie',
+            torrents: [{ hash: '3333333333333333333333333333333333333333', url: 'https://example.invalid/a.torrent' }],
+          },
+        ],
+      },
+    };
+    const out = yts.cleanResponse(data, 'open');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].title, 'Open Movie (2026) 720p');
+    assert.strictEqual(out[0].seeders, 31);
+    assert.strictEqual(out[0].infohash, '2222222222222222222222222222222222222222');
+    assert.strictEqual(yts.isAllowedTitle('Adult XXX Movie'), false);
+  });
+  ok('yts JSON parser handles empty API responses and chooses a stable torrent', () => {
+    assert.deepStrictEqual(yts.cleanResponse({}, 'movie'), []);
+    assert.strictEqual(yts.bestTorrent([{ hash: 'a'.repeat(40), url: 'u', quality: '1080p', seeds: 1 }, { hash: 'b'.repeat(40), url: 'v', quality: '720p', seeds: 1 }]).quality, '720p');
+    assert.strictEqual(yts.matchesQuery('A movie title', 'zzzz'), false);
+  });
+
+  // ---------------------- additional community helpers -----------------
+  const communityHtml = require('../indexers/community-html');
+  ok('community HTML parser extracts honest page results and inline metadata', () => {
+    const html = `<div class="row"><a href="/torrent/ubuntu-iso">Ubuntu 24.04 ISO</a><span>1.5 GiB</span><span>Seeds: 42</span><span>Peers: 3</span><span>2026-09-01</span><a href="magnet:?xt=urn:btih:${'ab'.repeat(20)}">magnet</a></div>`;
+    const rows = communityHtml.parseSearchPage(html, 'ubuntu', {
+      baseUrl: 'https://example.test/',
+      category: 'apps',
+      link: (url) => /\/torrent\//.test(url),
+    });
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].title, 'Ubuntu 24.04 ISO');
+    assert.strictEqual(rows[0].sizeBytes, Math.round(1.5 * 1024 ** 3));
+    assert.strictEqual(rows[0].seeders, 42);
+    assert.strictEqual(rows[0].infohash, 'ab'.repeat(20));
+    assert.strictEqual(rows[0].category, 'apps');
+    assert.strictEqual(communityHtml.parseSearchPage(html, 'unrelated', { baseUrl: 'https://example.test/' }).length, 0);
+  });
+
+  const eztv = require('../indexers/eztv');
+  ok('eztv JSON parser normalizes TV torrents and rejects unrelated rows', () => {
+    const out = eztv.cleanResponse({ torrents: [
+      { id: 1, title: 'The Office S01E01 720p', hash: 'cd'.repeat(20), size_bytes: 1234, seeds: 9, peers: 2, date_released_unix: 1700000000, torrent_url: 'https://eztvx.to/torrent/1' },
+      { id: 2, title: 'Unrelated Show', hash: 'ef'.repeat(20), seeds: 99 },
+    ] }, 'office');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].category, 'video');
+    assert.strictEqual(out[0].seeders, 9);
+    assert.strictEqual(out[0].infohash, 'cd'.repeat(20));
+    assert.strictEqual(out[0].uploadedAt, 1700000000000);
+  });
+
+  ok('requested community engines are allowlisted and opt-in by default', () => {
+    const ids = ['1337x', 'yts', 'eztv', 'torrentdownloads', 'limetorrents', 'nyaa', 'fitgirl'];
+    for (const id of ids) {
+      const e = registry.get(id);
+      assert.ok(e, `${id} is registered`);
+      assert.strictEqual(e.defaultEnabled, false, `${id} is opt-in`);
+      assert.ok(e.homepage, `${id} has a homepage`);
+      assert.strictEqual(registry.meta().find((m) => m.id === id).defaultEnabled, false);
+    }
+  });
+
   // ---------------------------- engine health ---------------------------
   const { runHealthChecks } = require('../lib/health');
   const fakeEngine = (id, impl) => ({
