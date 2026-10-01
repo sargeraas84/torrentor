@@ -34,7 +34,7 @@ function App() {
   const [view, setView] = useState('search'); // search | favorites | history
   const [catFilter, setCatFilter] = useState('all');
   const [archiveFilter, setArchiveFilter] = useState('all'); // 'all' | archive mediatype
-  const [sortMode, setSortMode] = useState('seeders');
+  const [sortMode, setSortMode] = useState('relevance');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maxed, setMaxed] = useState(false);
   const [toast, setToast] = useState(null);
@@ -535,8 +535,8 @@ function App() {
   const running = phase === 'running';
 
   // ----- derived display list --------------------------------------------
-  // Results already arrive seeders-sorted from main; re-sort only for the
-  // non-default sort modes the user can pick.
+  // Keep the displayed order explicit so changing filters and sort modes
+  // never reintroduces popularity-first ordering by accident.
   let shown = [];
   if (view === 'search') {
     const byCat = catFilter === 'all' ? results : results.filter((r) => r.category === catFilter);
@@ -544,7 +544,7 @@ function App() {
     // active, cards from other engines are hidden (they have no authoritative
     // mediatype); 'All' restores everything.
     const filtered = archiveFilter === 'all' ? byCat : byCat.filter((r) => r.mediatype === archiveFilter);
-    shown = sortMode === 'seeders' ? filtered : sortResults(filtered, sortMode);
+    shown = sortResults(filtered, sortMode);
   }
 
   const catCounts = {};
@@ -674,6 +674,8 @@ function App() {
               ))}
               <div style={{ flex: 1 }} />
               <select
+                data-testid="search-sort"
+                aria-label="Sort results"
                 className="app-nodrag"
                 value={sortMode}
                 onChange={(e) => setSortMode(e.target.value)}
@@ -687,10 +689,10 @@ function App() {
                   outline: 'none',
                 }}
               >
-                <option value="seeders">Sort: seeders</option>
-                <option value="size">Sort: size</option>
-                <option value="newest">Sort: newest</option>
-                <option value="relevance">Sort: relevance</option>
+                <option value="relevance">Best match</option>
+                <option value="seeders">Most seeders</option>
+                <option value="size">Largest size</option>
+                <option value="newest">Newest</option>
               </select>
             </div>
           )}
@@ -814,6 +816,7 @@ function App() {
           onSetEngines={(id) => toggleEngine(engines.find((e) => e.id === id))}
           onSetPrefs={setProxyPrefs}
           onClearHistory={clearHistory}
+          onKbHintDone={markKbHintSeen}
         />
       )}
 

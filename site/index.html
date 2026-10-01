@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Torrentor — one query, every legal torrent source, at once</title>
-  <meta name="description" content="Torrentor fans one search out to Internet Archive, official Linux and Arch releases and more — in parallel, deduped, and honest. A legal-first peer-to-peer meta-search for Windows." />
+  <meta name="description" content="Torrentor fans one search out to Internet Archive, official Linux and Arch releases and more — in parallel, deduped, and honest. A legal-first peer-to-peer meta-search for Windows and macOS." />
   <meta property="og:title" content="Torrentor" />
   <meta property="og:description" content="One query, every legal torrent source, at once. Parallel search across Archive.org, Ubuntu, Debian, Arch Linux and more." />
   <meta property="og:type" content="website" />
@@ -163,7 +163,7 @@
               <h3>Three things to know</h3>
               <ol class="steps">
                 <li><div><b>Peers stay in your torrent client</b><p>Torrentor finds the recipe (the <code>.torrent</code> or magnet link) and hands it to your client — qBittorrent, Transmission, anything — which does the peer-to-peer downloading. When a source hosts the file directly (Archive items, official ISOs), the app streams it over HTTPS instead.</p></div></li>
-                <li><div><b>One query, many libraries</b><p>Search <i>ubuntu</i> and you get the official Ubuntu ISO torrents, Archive copies of Ubuntu magazines, and more — merged, deduped, relevance first.</p></div></li>
+                <li><div><b>One query, many libraries</b><p>Search <i>ubuntu</i> and you get official Ubuntu ISO torrents, Archive copies of Ubuntu magazines, and more — merged, deduped, and ranked by title match before popularity.</p></div></li>
                 <li><div><b>Honest by design</b><p>No fabricated results, no sponsored cards. The Pirate Bay is available as an <b>opt-in</b> source — off by default, adult categories always filtered. If a result doesn't genuinely match your query, you won't see it.</p></div></li>
               </ol>
             </div></div>
@@ -207,8 +207,8 @@
               <div class="ic-tile">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.4 11l7.2-3.8M8.4 13l7.2 3.8"/></svg>
               </div>
-              <h3>Smart merge</h3>
-              <p>Duplicates across sources collapse into one card with an “also on …” badge. Ordering rules keep real results above demo fixtures, and relevance before size.</p>
+              <h3>Best matches first</h3>
+              <p>Exact titles and phrase matches rise above loose matches; common one-character typos can still match below exact results. Popularity breaks ties, and real results always stay above demo fixtures.</p>
             </div></div>
           </div>
 
@@ -217,7 +217,7 @@
               <div class="ic-tile">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l7 7v9H4V4z"/><path d="M13 4v7h7"/><path d="M8 12h6M8 16h6"/></svg>
               </div>
-              <h3>Rich cards</h3>
+              <h3>Smart merge, rich cards</h3>
               <p>Category, size, seeders/leechers, age, infohash preview, source badges — and Archive items show creator, year and their poster.</p>
             </div></div>
           </div>
@@ -319,7 +319,7 @@
               <div>
                 <h3>YTS</h3>
                 <p class="src-tag">community · <b>opt-in</b></p>
-                <p>Movie search through the YTS JSON catalog at <code>web.yts.gg</code> with quality-aware torrent choices, magnets and <code>.torrent</code> links.</p>
+                <p>Movie search through the YTS JSON API, with quality-aware torrent choices, magnets and <code>.torrent</code> links.</p>
               </div>
             </div></div>
           </div>
@@ -334,7 +334,7 @@
             </div></div>
           </div>
                   <div class="cell rv" data-d="8">
-                    <div class="bezel"><div class="core"><div class="src-idx">1</div><div><h3>1337x</h3><p class="src-tag">community · <b>opt-in</b></p><p>Movie and TV search through the <code>1337x.to</code> site.</p></div></div></div>
+                    <div class="bezel"><div class="core"><div class="src-idx">1</div><div><h3>1337x</h3><p class="src-tag">community · <b>opt-in</b></p><p>Movie and TV search through <code>1337x.to</code>; automated requests may be rejected with HTTP 403, and Torrentor does not bypass its protections.</p></div></div></div>
                   </div>
           <div class="cell rv" data-d="9">
             <div class="bezel"><div class="core"><div class="src-idx">E</div><div><h3>EZTV</h3><p class="src-tag">community · <b>opt-in</b></p><p>TV-show-focused search through the public <code>eztvx.to</code> API.</p></div></div></div>
@@ -420,8 +420,8 @@
       <div class="wrap">
         <div style="max-width: 680px;">
           <span class="eyebrow rv"><span class="dot"></span>Get Torrentor</span>
-          <h2 class="rv" data-d="1">Windows &amp; macOS.<br />Built from <span class="grad">source</span> in seconds.</h2>
-          <p class="lead rv" data-d="2">The v1.4.14 release is available as prebuilt Windows and macOS installers, or use the source-build commands below. No Node.js installation is needed for the installers.</p>
+          <h2 class="rv" data-d="1">Windows &amp; macOS.<br /><span class="grad">Ready to run.</span></h2>
+          <p class="lead rv" data-d="2">The current published v1.4.14 release is available as prebuilt Windows and macOS installers, or use the source-build commands below. No Node.js installation is needed for the installers.</p>
         </div>
 
         <div class="bezel rv" data-d="3" style="max-width: 760px; margin-top: 20px;">
@@ -446,7 +446,7 @@
           <div class="core" style="display: flex; flex-direction: column; gap: 12px;">
             <div>
               <h3 style="margin-bottom: 5px;">Help test Torrentor</h3>
-              <p style="color: var(--mut); font-size: 13px; margin: 0;">Try the published v1.4.14 build and tell us what works — or what breaks. The offline Demo source exercises search and downloads without contacting any community index.</p>
+              <p style="color: var(--mut); font-size: 13px; margin: 0;">Try the current published v1.4.14 build and tell us what works — or what breaks. The offline Demo source exercises search and downloads without contacting any community index.</p>
             </div>
             <div style="display: flex; gap: 9px; flex-wrap: wrap;">
               <a class="btn ghost" href="https://github.com/sargeraas84/torrentor/issues/new/choose">Report a bug ↗</a>
@@ -471,7 +471,7 @@
             <button class="cpy" type="button">copy</button>
           </div>
           <div class="note rv" data-d="4">
-            <b>Why source-first?</b> Torrentor is open source on GitHub — no telemetry, no accounts, and the installer can be inspected or replaced with a local build. The v1.4.14 release provides Windows installer + portable <code>.exe</code> and macOS universal <code>.dmg</code> + <code>.zip</code>. macOS builds are unsigned, so the first launch is right-click → <b>Open</b> — normal for open-source apps.
+            <b>Open source, ready to run.</b> Torrentor is open source on GitHub — no telemetry, no accounts, and every installer can be inspected or replaced with a local build. The current v1.4.14 release provides Windows installer + portable <code>.exe</code> and macOS universal <code>.dmg</code> + <code>.zip</code>. macOS builds are unsigned, so the first launch is right-click → <b>Open</b> — normal for open-source apps.
           </div>
         </div>
       </div>

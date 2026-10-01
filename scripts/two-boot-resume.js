@@ -38,12 +38,17 @@
 // schedule-only plan with force=true so its cap binds regardless of the
 // clock, boot #2 asserts the force came back ON and still paces the queue.
 //
-// An eighth scenario quits from INSIDE the real what-if popover: boot #1
-// arms a schedule plan that carries BOTH a weekday selector and a folder
-// rule, opens the popover in the actual window, cycles a stray hypothetical
-// stepper WITHOUT applying it, and quits. Boot #2 asserts the plan (weekday
-// + folder entry) survived, the restored queue carries only the APPLIED
-// limits (the stray preview never leaked), and the transfers complete.
+// An eighth scenario quits from INSIDE the real what-if popover with a
+// PAUSED transfer in the batch: boot #1 arms a schedule plan that carries
+// BOTH a weekday selector and a folder rule, pauses the second active
+// mid-batch (its slot frees, promoting the first queued file), opens the
+// popover in the actual window, cycles a stray hypothetical stepper WITHOUT
+// applying it, and quits. Boot #2 asserts the plan (weekday + folder entry)
+// survived, the restored queue carries only the APPLIED limits (the stray
+// preview never leaked), the paused-vs-active SLOT LAYOUT came back intact
+// (2 active slots + 1 queued + the parked transfer last, every per-file
+// limit preserved, the parked .part kept and never auto-resumed), and the
+// three running transfers complete.
 //
 // A fourth scenario proves SMART ORDER + LEARNED SPEEDS survive:
 //   boot #1 (phase 'smart-start')  — enables the smart-order pref, starts
@@ -136,7 +141,7 @@ function runElectron(script, env) {
       err += d.toString();
       process.stdout.write(`[child:err] ${d}`);
     });
-    const kill = setTimeout(() => child.kill(), 90000);
+    const kill = setTimeout(() => child.kill(), 200000);
     child.on('close', (code) => {
       clearTimeout(kill);
       resolve({ code, out, err });
@@ -471,25 +476,34 @@ async function main() {
       };
 
       // boot #1: smart order on, four genuine downloads, a plan saved with
-      // a FOLDER rule (c's dir @ 100 KB/s) + a per-file override (d @ 512
+      // a FOLDER rule (c's dir @ 40 KB/s) + a per-file override (d @ 64
       // KB/s) + a now-bracketing schedule with a WEEKDAY selector, APPLIED
-      // so its limits land — then the window is driven into the what-if
-      // popover and a stray hypothetical stepper is cycled WITHOUT applying,
-      // and the app quits from inside that popover.
+      // so its limits land — then the second ACTIVE is PAUSED mid-batch
+      // (its slot frees, promoting the first queued file) — and the window
+      // is driven into the what-if popover where a stray hypothetical
+      // stepper is cycled WITHOUT applying, and the app quits from inside
+      // that popover.
       const p1 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env8, { TORRENTOR_RESUME_PHASE: 'kb-start' }));
       check(p1.code === 0, `kb boot #1 exited ${p1.code} — ${p1.err.slice(0, 200)}`);
+      check(/KB_BOOT1_PAUSED/.test(p1.out), 'boot #1 paused a transfer mid-batch inside the what-if flow');
       check(/KB_BOOT1_APPLIED/.test(p1.out), 'boot #1 applied the plan (folder rule + weekday window)');
       check(/KB_BOOT1_POPOVER/.test(p1.out), 'boot #1 quit from inside the what-if popover with a stray preview');
 
-      // boot #2: the plan (folder rule + weekday selector) must survive and
-      // the restored queue must carry ONLY the applied limits — the stray
-      // what-if preview must not leak — then all four transfers complete.
+      // boot #2: the plan (folder rule + weekday selector) must survive, the
+      // restored queue must carry ONLY the applied limits — the stray
+      // what-if preview must not leak — AND the paused-vs-active slot
+      // layout must come back intact: 2 active slots + 1 queued + the
+      // parked transfer last, every per-file limit preserved, the parked
+      // .part kept and never auto-resumed. Then the three running transfers
+      // complete to full size while the parked one stays parked.
       const p2 = await runElectron(path.join('scripts', 'two-boot-child.js'), Object.assign({}, env8, { TORRENTOR_RESUME_PHASE: 'kb-verify' }));
       check(p2.code === 0, `kb boot #2 exited ${p2.code} — ${p2.err.slice(0, 200)}`);
       check(/KB_BOOT2_PLAN_OK/.test(p2.out), 'boot #2 restored the plan (weekday selector + folder rule)');
       check(/KB_BOOT2_LIMITS_OK/.test(p2.out), 'boot #2 the stray what-if preview did not leak into the restored queue');
-      check(/KB_BOOT2_DONE/.test(p2.out), 'boot #2 completed all four resumed transfers');
-      ok('a schedule plan\'s weekday selector + folder rule survived a quit from inside the what-if popover', 'plan restored with its weekday window and folder rule; restored queue carries only the applied limits (the stray hypothetical preview never leaked); all four transfers completed to full size');
+      check(/KB_BOOT2_LAYOUT_OK/.test(p2.out), 'boot #2 restored the paused-vs-active slot layout with every per-file limit');
+      check(/KB_BOOT2_DONE/.test(p2.out), 'boot #2 completed the resumed transfers with the parked one still parked');
+      ok('a schedule plan\'s weekday selector + folder rule survived a quit from inside the what-if popover', 'plan restored with its weekday window and folder rule; restored queue carries only the applied limits (the stray hypothetical preview never leaked)');
+      ok('the paused-vs-active slot layout survived the quit-from-inside-popover', '2 active slots + 1 queued + the parked transfer last, the folder-rule limits (a/b/c = 40 KB/s) and d\'s per-file override (64 KB/s) all intact, parked .part kept and never auto-resumed, the three running transfers completed to full size');
     } finally {
       if (server8) server8.close();
       if (dataDir8) {

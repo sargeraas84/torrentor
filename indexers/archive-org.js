@@ -18,7 +18,7 @@
 //    relevant even for broad queries.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, sanitizeList, tokenHitScore } = require('./base');
+const { normalizeResult, sanitizeList, queryMatches, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'archive-org',
@@ -77,11 +77,7 @@ function significantTokens(query) {
  * must never promote items whose metadata merely mentions the term.
  */
 function matchesQuery(doc, query) {
-  const tokens = significantTokens(query);
-  if (!tokens.length) return false;
-  const title = String(doc.title || '').toLowerCase();
-  const id = String(doc.identifier || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-  return tokens.some((t) => title.includes(t) || id.includes(t));
+  return queryMatches(query, `${doc.title || ''} ${doc.identifier || ''}`);
 }
 
 function normalizeItem(doc, query) {

@@ -8,16 +8,16 @@
 // source whose operator and content policy should be reviewed before use.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, queryMatches, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'yts',
   name: 'YTS',
   homepage: 'https://web.yts.gg/',
-  tagline: 'HD movie catalog at web.yts.gg via its official API — opt-in, off by default.',
+  tagline: 'Movie catalog via the YTS JSON API — opt-in, off by default.',
   kind: 'community',
   demo: false,
-  probe: 'open movie',
+  probe: 'inception',
   defaultEnabled: false,
 };
 
@@ -27,10 +27,7 @@ const MAX_RESULTS = 50;
 const ADULT_WORDS = /(?:porn|xxx|hentai|sex\s*film|adult\s*film)/i;
 
 function matchesQuery(title, query) {
-  const tokens = queryTokens(query);
-  if (!tokens.length) return false;
-  const hay = String(title || '').toLowerCase();
-  return tokens.some((token) => hay.includes(token));
+  return queryMatches(query, title);
 }
 
 function isAllowedTitle(title) {

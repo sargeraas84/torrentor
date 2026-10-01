@@ -6,9 +6,14 @@
 > 🌐 **Website:** <https://sargeraas84.github.io/torrentor/> — landing page and full docs.  
 > ⬇️ **Download:** Windows installer + portable `.exe`, and macOS `.dmg` (Intel & Apple Silicon), on the [latest release](https://github.com/sargeraas84/torrentor/releases/latest).
 
-A privacy-first **torrent meta-search engine for Windows**, built with Electron.
+A privacy-first **torrent meta-search desktop app for Windows and macOS**, built with Electron.
 
 One query. Many torrent sources at once. One window.
+
+Search results default to **Best match**: exact title and phrase matches rank before
+popularity, common one-character title typos can still match at a lower score, and
+seeders break ties. Choose Most seeders, Largest size, or Newest when those better fit
+the search.
 
 Torrentor fans your query out to every enabled source **in parallel**, then merges
 everything into a single list — **deduped by infohash** — with source badges, live
@@ -28,14 +33,14 @@ Every outbound request runs in the main process and honors your **VPN/proxy rout
 | Area | What you get |
 | --- | --- |
 | ⚡ Parallel search | One query runs against every enabled source at once; results **stream in as each source answers**, not after the slowest finishes |
-| 🔀 Smart merge | Results are deduped by infohash (duplicates from different sources collapse into one card with an *"also on …"* badge); a watchdog guarantees no engine can hang a search |
+| 🔀 Best-match search | Exact title and phrase matches rank first by default; common one-character title typos can match below exact hits. Seeders break relevance ties. Switch to seeders, size, or newest any time. Results are deduped by infohash (duplicates from different sources collapse into one card with an *"also on …"* badge), with real results always above Demo fixtures in every sort mode |
 | 🗂 Rich cards | Category, size, seeders/leechers/downloads, age, infohash preview, source badges, **Demo** labeling on synthetic entries; Archive items carry **creator — year** and a poster |
 | 🧲 Magnet actions | Copy magnet · Open in torrent client (OS hand-off) · Copy `.torrent` URL · Download `.torrent` · Open source page — all scheme-validated in main |
 | ⬇️ Direct download | Archive items open an **in-app file picker** and stream the chosen file to disk; Ubuntu/Arch official ISOs download straight from the mirror. Hosts are allowlisted, every redirect hop re-validated, progress lives in a downloads tray — no torrent client needed for file-based sources. Downloads are **resumable**: at most two stream at once (the rest queue FIFO, **reorderable with drag-and-drop or arrows**, or **smart-ordered** — a tray toggle starts the fastest-finishing file first, using known sizes, your speed limits, and each file's **own measured speed**, which the queue learns as streams progress and re-ranks on the fly; equal-ETA files batch by destination folder, and every queued chip shows the ETA and the speed basis — limit / measured / live network — behind it), an interrupted file continues from its partial via HTTP Range, a **user pause survives a restart** (it parks, never auto-resumes), the save dialog **remembers your folder** (per-source defaults too), and finished transfers offer **reveal in folder**. Tray chips say which folder rule landed each file, and the Library views show **per-source download tallies with all-time / this-week / this-month windows** and a **Copy CSV** button that exports the selected period to the clipboard. **Queue plans** bottle the whole pacing setup: a what-if preview re-ranks hypothetical per-file and **per-folder** limits before you apply them, the applied patch saves as a **named plan** (folder rules keep covering files queued into that folder later), a plan can carry an **active-window schedule** that caps the entire queue at set hours (a "night" plan throttling to 100 KB/s between 23:00 and 07:00), and the applied plan's name rides every tray chip with **one-click switching from the tray header** — an armed plan even **survives a relaunch**. Standalone **night mode** in Settings applies the same clock-window cap to every download with no plan at all, its active state shows in the tray header, and both kinds of window can be restricted to **specific weekdays** (a Mon–Fri "night" plan) — with one-click **presets** (Weekdays / Weekends / Every day) next to the manual day toggles. The tray's night pill is a **one-click session override** — click it to force the cap on or off for this session without opening Settings (the clock window returns next launch; the override never survives a restart) — and whenever a plan window or night cap is what's actually binding a transfer, hovering the chip shows the full **effective-speed breakdown**: own limit vs plan window vs night cap, and which one wins. If the applied plan's window and night mode are **both active at once with different caps**, the tray warns about the overlap, names which tighter cap actually wins, and **clicking the warning jumps straight into the what-if popover** to reconcile them. A schedule-only plan's row has an **"apply this schedule now"** button that starts (or stops) its window on demand — a per-plan session force like the night pill, so a 23:00–07:00 plan is testable at noon — and the tray popover notes **where the applied plan came from**: "applied 11:52" for a live apply versus "restored at boot · last applied …" when a relaunch re-armed it. Demo cards exercise the whole flow **offline** with clearly-labeled sample files |
 | 🛡 VPN / proxy route | Route **every** search request through your own VPN/proxy (HTTP, SOCKS4/5, auth supported) with a one-click **Check my IP** verification (settings → VPN & privacy) |
 | 🩺 Source health | Settings → Search sources probes every real source with a known-good query and shows healthy / failing per engine — silent regressions (site redesigns that return 0 results) appear as red dots, not green chips |
 | 🔖 Local library | Favorites + recent searches stored as plain JSON in the app-data folder. No account, no cloud, no telemetry |
-| 🔍 Filtering | Category chips (Video/Audio/Apps/Games/Docs/Other) + **Archive mediatype chips** (Movies/Audio/Texts/Software/…, from Archive's own classification) that AND together; sort by seeders / size / newest / relevance |
+| 🔍 Filtering | Category chips (Video/Audio/Apps/Games/Docs/Other) + **Archive mediatype chips** (Movies/Audio/Texts/Software/…, from Archive's own classification) that AND together; sort by best match / seeders / size / newest |
 | 🎬 Open-culture browse | Idle-screen **Explore tiles** (public-domain films, old-time radio, LibriVox, silent cinema, 78rpm, NASA) that fire the same honest search — broad catalog phrases fall back to a title-scoped Archive query so literal matches are never buried |
 | 🔒 Secure shell | Sandboxed renderer (CSP, `contextIsolation`, no `nodeIntegration`), whitelisted IPC bridge, allowlist-only engine registry |
 
@@ -63,11 +68,12 @@ network. Default sources are **legal-friendly**, so a fresh install is useful an
 6. **Nyaa** *(opt-in, off by default)* — an RSS-backed anime/media community index
    with magnets, hashes, sizes and seeder counts. It is disabled on fresh installs;
    its adult category is filtered before results reach the UI.
-7. **YTS** *(opt-in, off by default)* — a community movie catalog at `web.yts.gg`
-   with selectable quality releases, magnets and `.torrent` links. It is disabled on fresh installs;
-   review the provider's content policy before enabling it.
-8. **1337x** *(opt-in, off by default)* — a community movie and TV index exposed
-   through the requested `1337x.to` site.
+7. **YTS** *(opt-in, off by default)* — a community movie catalog using the YTS JSON API,
+   with selectable quality releases, magnets and `.torrent` links. Its health check probes
+   a known title; it is disabled on fresh installs, so review the provider's content policy first.
+8. **1337x** *(opt-in, off by default)* — a community movie and TV index at `1337x.to`.
+   Automated requests may be blocked with HTTP 403; Torrentor reports that honestly
+   and offers to open the source site rather than bypassing its protections.
 9. **EZTV** *(opt-in, off by default)* — a TV-show-focused public API adapter using
    `eztvx.to`.
 10. **TorrentDownloads** *(opt-in, off by default)* — a broad community search
@@ -79,7 +85,19 @@ network. Default sources are **legal-friendly**, so a fresh install is useful an
 
 All community sources are deliberately separate choices: enabling one does not enable
 the others. Toggle them under **Settings → Search sources**; all searches still pass
-through Torrentor's proxy-aware network client.
+through Torrentor's proxy-aware network client. YTS health checks search for the known
+title `inception`; 1337x may block automated probes with HTTP 403, in which case the app
+offers a direct **Open source** action rather than attempting to bypass that protection.
+
+### How search results are ranked
+
+Torrentor defaults to **Best match**: exact whole-token coverage and title phrases
+rank results before popularity, so an unrelated high-seeder entry cannot bury a
+stronger match. A conservative one-character spelling correction helps recover
+misspelled title searches, but is scored below exact matches; short words and numeric
+versions remain exact-only. Seeders break ties, and real results stay ahead of
+synthetic Demo fixtures. Use **Most seeders**, **Largest size**, or **Newest** when
+those are more useful for your search.
 
 ### Adding more providers
 
@@ -157,7 +175,7 @@ npm run test:resume # boots the real app TWICE over a slow Range server: starts
                     #   queue, including a paused-vs-active slot-layout
                     #   check and every per-file limit after quitting from
                     #   inside the popover
-npm run test:ui    # 99-step real-window playtest (real engines): search,
+npm run test:ui    # real-window playtest (real engines): search,
                     #   favorites, VPN check, paging, thumbnails, paced demo
                     #   (paused & resumed, queue reordered by drag-and-drop
                     #   + smart order with per-chip ETA/bytes + a popover

@@ -609,11 +609,14 @@ async function phaseForceVerify(win) {
 // Scenario 8: a schedule plan carrying BOTH a WEEKDAY selector and a FOLDER
 // rule survives a relaunch when the app quits from INSIDE the what-if
 // popover — i.e. with a hypothetical preview still open and a stray
-// (un-applied) stepper patch in the renderer. Boot #1 arms the plan, opens
-// the real what-if popover in the actual window, cycles one stepper WITHOUT
-// applying (the stray preview), then quits. Boot #2 must restore the plan
-// (weekday selector + folder entry intact), restore the queue with the
-// APPLIED folder rule's limits (not the stray preview's), and complete.
+// (un-applied) stepper patch in the renderer. Boot #1 also PAUSES the second
+// active mid-batch, so the batch that quits is a genuine mix (a downloading,
+// b parked, c promoted to the freed slot, d queued). Boot #2 must restore
+// the plan (weekday selector + folder entry intact), restore the queue with
+// the APPLIED folder rule's limits (not the stray preview's), restore the
+// paused-vs-active SLOT LAYOUT (2 active slots + 1 queued + the parked
+// transfer last, per-file limits intact, the parked one's .part kept and
+// never auto-resumed), and complete the three running transfers.
 async function phaseKbStart(win) {
   const js = (code) => win.webContents.executeJavaScript(code, true);
   const pad = (n) => String(n).padStart(2, '0');
@@ -624,26 +627,38 @@ async function phaseKbStart(win) {
   const from = hm(Date.now() - 2 * 3600e3);
   const to = hm(Date.now() + 2 * 3600e3);
   const today = new Date().getDay(); // weekday selector: this window only runs today
-  // Seed four genuine downloads and pace them like the plan scenario (two
-  // actives measuring their own speed, two queued at equal limits).
+  // Seed four genuine downloads and pace them so NOTHING can complete
+  // during the whole boot (a would finish at 96 KB/s in ~16 s — the slow
+  // 24/32 KB/s actives keep the batch alive until quit): two actives
+  // measuring their own speed, two queued at equal limits.
   const urls = [0, 1, 2, 3].map((i) => `${BASE}kb-${i}.bin`);
   const results = [];
   for (const u of urls) results.push(await js(`window.torrentor.downloadFile(${JSON.stringify(u)})`));
   const ts = results.map((r) => r && r.transfer);
   if (!ts.every((t) => t && (t.status === 'downloading' || t.status === 'queued'))) throw new Error('kb seed transfers did not start cleanly');
   const [a, b, c, d] = ts;
-  await js(`Promise.all([window.torrentor.setDownloadLimit(${a.id}, 98304), window.torrentor.setDownloadLimit(${b.id}, 131072), window.torrentor.setDownloadLimit(${c.id}, 262144), window.torrentor.setDownloadLimit(${d.id}, 262144)])`);
+  await js(`Promise.all([window.torrentor.setDownloadLimit(${a.id}, 24576), window.torrentor.setDownloadLimit(${b.id}, 32768), window.torrentor.setDownloadLimit(${c.id}, 262144), window.torrentor.setDownloadLimit(${d.id}, 262144)])`);
   const snap = await js(`window.torrentor.getDownloads()`);
   const cDir = (snap.find((t) => t.id === c.id) || {}).dir;
   const dPath = (snap.find((t) => t.id === d.id) || {}).filePath;
   if (!cDir || !dPath) throw new Error('queued transfers missing dir/filePath');
-  // One plan with BOTH a folder rule (c's dir @ 100 KB/s) and a schedule
-  // whose window brackets now but whose cap (1 MB/s) never binds below the
-  // per-file limits — the window's weekday selector is what must survive.
-  const saved = await js(`window.torrentor.saveQueuePlan('kb-plan', { ${d.id}: 524288 }, { ${JSON.stringify(cDir)}: 102400 }, ${JSON.stringify({ from, to, bytesPerSec: 1048576, days: [today] })})`);
+  // PAUSE the second ACTIVE mid-batch (through the real pause IPC): its
+  // slot frees, so the first queued file (c) promotes to a second active
+  // slot. The batch that quits is therefore a genuine MIX — a downloading,
+  // b parked, c downloading, d queued — and boot #2 must restore exactly
+  // that paused-vs-active slot layout with every per-file limit intact.
+  const bStatus = await js(`window.torrentor.pauseDownload(${b.id}).then((l) => { const t = (l || []).find((x) => x.id === ${b.id}); return t ? t.status : null; })`);
+  if (bStatus !== 'paused') throw new Error(`mid-batch pause failed: status=${bStatus}`);
+  console.log(`KB_BOOT1_PAUSED id=${b.id} slotFreedTo=${c.id}`);
+  // One plan with BOTH a folder rule (c's dir @ 40 KB/s — slow enough that
+  // the promoted c cannot complete before quit) and a schedule whose window
+  // brackets now but whose cap (1 MB/s) never binds below the per-file
+  // limits — the window's weekday selector is what must survive. d's
+  // override is 64 KB/s so it cannot drain during boot #2's layout check.
+  const saved = await js(`window.torrentor.saveQueuePlan('kb-plan', { ${d.id}: 65536 }, { ${JSON.stringify(cDir)}: 40960 }, ${JSON.stringify({ from, to, bytesPerSec: 1048576, days: [today] })})`);
   const rec = (saved && saved['kb-plan']) || { entries: [] };
   const entries = rec.entries || [];
-  if (entries.length !== 2 || !entries.some((e) => e.dir === cDir) || !entries.some((e) => e.filePath === dPath && e.bytesPerSec === 524288)) {
+  if (entries.length !== 2 || !entries.some((e) => e.dir === cDir) || !entries.some((e) => e.filePath === dPath && e.bytesPerSec === 65536)) {
     throw new Error(`plan did not save as folder rule + override: ${JSON.stringify(rec)}`);
   }
   if (!rec.schedule || !rec.schedule.days || rec.schedule.days.join(',') !== String(today)) {
@@ -655,7 +670,7 @@ async function phaseKbStart(win) {
   const res = await js(`window.torrentor.applyQueuePlan('kb-plan')`);
   const info = res && res.appliedPlan;
   if (!info || info.name !== 'kb-plan' || !info.windowActive) throw new Error(`boot#1 did not arm the plan: ${JSON.stringify(info)}`);
-  console.log('KB_BOOT1_APPLIED name=kb-plan folder=100KB/s windowDays=' + today);
+  console.log('KB_BOOT1_APPLIED name=kb-plan folder=40KB/s override=64KB/s windowDays=' + today);
   // Now drive the REAL window into the what-if popover: smart order on via
   // the tray button (the renderer must know it for the popover to render),
   // open the start-order popover, flip into what-if, and cycle ONE stepper
@@ -692,7 +707,7 @@ async function phaseKbVerify(win) {
   const folderEntry = planRec.entries.find((e) => e.dir);
   const fileEntry = planRec.entries.find((e) => e.filePath);
   if (!folderEntry || !fileEntry) throw new Error(`plan shape lost across restart: ${JSON.stringify(planRec)}`);
-  if (folderEntry.bytesPerSec !== 102400 || fileEntry.bytesPerSec !== 524288) throw new Error(`plan limits lost across restart: ${JSON.stringify(planRec)}`);
+  if (folderEntry.bytesPerSec !== 40960 || fileEntry.bytesPerSec !== 65536) throw new Error(`plan limits lost across restart: ${JSON.stringify(planRec)}`);
   if (!planRec.schedule.days || planRec.schedule.days.join(',') !== String(today)) throw new Error(`plan weekday selector lost: ${JSON.stringify(planRec.schedule)}`);
   const info = await waitFor(
     'boot#2 armed plan restored (window active, marked restored)',
@@ -700,11 +715,11 @@ async function phaseKbVerify(win) {
     20000
   );
   if (info.schedule.days.join(',') !== String(today)) throw new Error(`boot#2 applied arm lost its weekday selector: ${JSON.stringify(info.schedule)}`);
-  console.log(`KB_BOOT2_PLAN_OK name=kb-plan folder=100KB/s override=512KB/s days=[${today}] restored=true`);
-  // The restored queue must carry the APPLIED folder rule's limits (c at
-  // 100 KB/s, d at 512 KB/s) — and NOT whatever hypothetical value the
-  // stray what-if stepper cycled to in boot #1. Preview state dies with the
-  // renderer; only real applies persist.
+  console.log(`KB_BOOT2_PLAN_OK name=kb-plan folder=40KB/s override=64KB/s days=[${today}] restored=true`);
+  // The restored queue must carry the APPLIED plan's limits (c at 40 KB/s
+  // folder rule, d at 64 KB/s override) — and NOT whatever hypothetical
+  // value the stray what-if stepper cycled to in boot #1. Preview state
+  // dies with the renderer; only real applies persist.
   const state = await waitFor(
     'boot#2 restored transfers carry the applied limits, not the stray preview',
     () =>
@@ -718,23 +733,98 @@ async function phaseKbVerify(win) {
       })()`),
     25000
   );
-  if (state.cLimit !== 102400 || state.dLimit !== 524288) {
+  if (state.cLimit !== 40960 || state.dLimit !== 65536) {
     throw new Error(`restored limits wrong (stray preview leaked?): c=${state.cLimit} d=${state.dLimit}`);
   }
   console.log(`KB_BOOT2_LIMITS_OK c=${state.cLimit} d=${state.dLimit} (stray preview did not leak)`);
-  await waitFor(
-    'boot#2 all four resumed transfers complete',
+  // NEW: the paused-vs-active SLOT LAYOUT must survive the quit-from-inside
+  // the popover. Boot #1 quit with a downloading, b parked, c downloading,
+  // d queued — boot #2 must come back 2 active slots + 1 queued + 1 parked,
+  // the parked transfer LAST in the list (list order is running, queued,
+  // paused), every per-file limit intact (a/b/c=40, d=64 KB/s because the
+  // smoke-mode folder rule covers the shared temp folder), the parked one's
+  // .part on disk — and the two ACTIVE slots are exactly the
+  // two fastest-finishing transfers by ETA under smart order.
+  // Return the FULL live state on the first poll (restore is settled by the
+  // time the page is up) and assert every condition here, so a failure
+  // dumps exactly what boot #2 actually holds instead of timing out blind.
+  const lay = await waitFor(
+    'boot#2 restored slot layout: 2 actives + 1 queued + 1 paused with every limit',
     () =>
       js(`(async () => {
         const list = await window.torrentor.getDownloads();
         const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
-        return mine.length === 4 && mine.every((t) => t.status === 'done') ? mine : null;
+        const byName = Object.fromEntries(mine.map((t) => [t.url.split('/').pop(), t]));
+        const downloading = mine.filter((t) => t.status === 'downloading');
+        const queued = mine.filter((t) => t.status === 'queued');
+        const paused = mine.filter((t) => t.status === 'paused');
+        const activeNames = downloading.map((t) => t.url.split('/').pop());
+        return {
+          names: mine.map((t) => t.url.split('/').pop()),
+          statuses: mine.map((t) => t.status),
+          activeNames,
+          queuedName: queued.length ? queued[0].url.split('/').pop() : null,
+          pausedName: paused.length ? paused[0].url.split('/').pop() : null,
+          pausedLast: paused.length ? mine[mine.length - 1] === paused[0] : null,
+          limits: {
+            a: byName['kb-0.bin'] && byName['kb-0.bin'].maxBytesPerSec,
+            b: byName['kb-1.bin'] && byName['kb-1.bin'].maxBytesPerSec,
+            c: byName['kb-2.bin'] && byName['kb-2.bin'].maxBytesPerSec,
+            d: byName['kb-3.bin'] && byName['kb-3.bin'].maxBytesPerSec,
+          },
+          etas: mine.map((t) => ({ n: t.url.split('/').pop(), eta: t.etaSeconds == null ? null : Math.round(t.etaSeconds), st: t.status })),
+          bPath: byName['kb-1.bin'] && byName['kb-1.bin'].filePath,
+          files: mine.map((t) => t.filePath),
+        };
       })()`),
-    120000
+    25000
   );
-  const sizes = state.files.map((fp) => (fs.existsSync(fp) ? fs.statSync(fp).size : -1));
+  const L = (cond, what) => {
+    if (!cond) throw new Error(`layout check failed: ${what} — ${JSON.stringify(lay)}`);
+  };
+  L(lay.names.length === 4 && ['kb-0.bin', 'kb-1.bin', 'kb-2.bin', 'kb-3.bin'].every((n) => lay.names.indexOf(n) >= 0), 'all four transfers present');
+  L(lay.activeNames.length === 2 && lay.queuedName && lay.pausedName === 'kb-1.bin', '2 actives + 1 queued + kb-1 parked');
+  L(lay.pausedLast === true, 'parked transfer sits LAST in the list (running, queued, paused)');
+  // In SMOKE mode every download lands in os.tmpdir(), so the plan's
+  // FOLDER rule (40 KB/s) pins a, b AND c (b even while parked — the rule
+  // applies to paused transfers too); only d's per-file OVERRIDE (64 KB/s)
+  // differs. These are exactly the limits in force at quit, and all four
+  // must come back across the restart.
+  L(lay.limits.a === 40960 && lay.limits.b === 40960 && lay.limits.c === 40960 && lay.limits.d === 65536, `per-file limits a=${lay.limits.a} b=${lay.limits.b} c=${lay.limits.c} d=${lay.limits.d}`);
+  // The two ACTIVE slots must hold the two fastest-finishing transfers
+  // with a KNOWN estimate. The queued one's size is unknown until a slot
+  // frees (etaSeconds null), so it can't be ranked yet — compare among the
+  // non-null estimates, which the two actives both have once they stream.
+  const known = lay.etas.filter((e) => e.st !== 'paused' && e.eta != null).sort((x, y) => x.eta - y.eta);
+  if (known.length >= 2) {
+    const twoFastest = known.slice(0, 2).map((x) => x.n).sort();
+    L(lay.activeNames.slice().sort().join(',') === twoFastest.join(','), `actives ${lay.activeNames} are the two fastest-ETA slots ${twoFastest}`);
+  }
+  const parkedStill = await js(`(async () => { const list = await window.torrentor.getDownloads(); const t = list.find((x) => x.url.endsWith('kb-1.bin')); return t ? { status: t.status, received: t.received } : null; })()`);
+  await new Promise((r) => setTimeout(r, 1500));
+  const parkedAfter = await js(`(async () => { const list = await window.torrentor.getDownloads(); const t = list.find((x) => x.url.endsWith('kb-1.bin')); return t ? { status: t.status, received: t.received } : null; })()`);
+  if (!parkedAfter || parkedAfter.status !== 'paused' || parkedAfter.received !== parkedStill.received) {
+    throw new Error(`parked transfer auto-resumed in boot #2: ${JSON.stringify({ parkedStill, parkedAfter })}`);
+  }
+  if (!fs.existsSync(lay.bPath + '.part')) throw new Error('parked transfer .part missing after restart');
+  console.log(`KB_BOOT2_LAYOUT_OK actives=${lay.activeNames.join(',')} queued=${lay.queuedName} parked=kb-1.bin limits=a:${lay.limits.a},b:${lay.limits.b},c:${lay.limits.c},d:${lay.limits.d}`);
+  await waitFor(
+    'boot#2 resumed transfers complete (parked one stays parked)',
+    () =>
+      js(`(async () => {
+        const list = await window.torrentor.getDownloads();
+        const mine = list.filter((t) => t.url.startsWith(${JSON.stringify(BASE)}));
+        if (mine.length !== 4) return null;
+        const parked = mine.find((t) => t.status === 'paused');
+        return parked && mine.filter((t) => t !== parked).every((t) => t.status === 'done') ? mine : null;
+      })()`),
+    180000
+  );
+  const doneFiles = lay.files.filter((fp) => fp !== lay.bPath);
+  const sizes = doneFiles.map((fp) => (fs.existsSync(fp) ? fs.statSync(fp).size : -1));
   if (sizes.some((s) => s !== EXPECTED)) throw new Error(`final sizes ${JSON.stringify(sizes)} !== ${EXPECTED}`);
-  console.log('KB_BOOT2_DONE bytes=' + EXPECTED);
+  if (fs.existsSync(lay.bPath)) throw new Error('parked transfer must never complete');
+  console.log('KB_BOOT2_DONE bytes=' + EXPECTED + ' parked=kb-1.bin');
   try {
     fs.rmSync(process.env.TORRENTOR_DATA_DIR, { recursive: true, force: true });
   } catch {

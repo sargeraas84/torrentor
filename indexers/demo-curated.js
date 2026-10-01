@@ -9,7 +9,7 @@
 // for downloadable content.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, queryMatches, tokenHitScore } = require('./base');
 const { hashSeed } = require('../lib/format');
 const { normalizeInfohash } = require('../lib/magnet');
 
@@ -63,12 +63,11 @@ function fakeInfohash(title) {
 async function search(query, ctx) {
   const q = String(query || '').trim();
   if (q.length < 2) return [];
-  const tokens = queryTokens(q);
   const out = [];
   for (let i = 0; i < CATALOG.length; i++) {
     const [title, category, sizeBytes, keywords, daysAgo] = CATALOG[i];
     const titleScore = tokenHitScore(q, `${title} ${keywords.join(' ')}`);
-    if (titleScore <= 0 && !keywords.some((k) => tokens.some((t) => k.includes(t)))) continue;
+    if (titleScore <= 0 && !queryMatches(q, keywords.join(' '))) continue;
     const ih = fakeInfohash(title);
     const seed = hashSeed(`seeder|${title}`);
     out.push(

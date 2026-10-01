@@ -7,10 +7,65 @@ const { LIMIT_PRESETS, limitOptionLabel } = require('../../lib/download-presets'
 
 const KIND_LABEL = { official: 'Official', community: 'Community', demo: 'Demo' };
 
+/**
+ * Keyboard-shortcuts card in Settings → About. Shares the SAME one-time
+ * seen-flag as the tray hint (prefs.queueKbHintSeen): while the flag is
+ * unset it renders as the FULL onboarding card and retires the flag the
+ * first time it is shown (once anywhere = never again in either place).
+ * The full card stays up for the rest of that modal session (so it can
+ * actually be read); a later visit shows the compact reference instead.
+ */
+function KbAboutCard({ seen, onDone }) {
+  const fired = useRef(false);
+  const [shownFull, setShownFull] = useState(!seen);
+  useEffect(() => {
+    if (!seen && !fired.current) {
+      fired.current = true;
+      setShownFull(true);
+      if (onDone) onDone();
+    }
+  }, [seen, onDone]);
+  if (shownFull) {
+    return (
+      <div
+        data-testid="dl-kb-about-card"
+        style={{
+          marginTop: 16,
+          border: '1px solid #22d3ee55',
+          borderRadius: 10,
+          background: 'rgba(34,211,238,0.06)',
+          padding: '13px 15px',
+        }}
+      >
+        <div style={{ color: '#7ce7f7', fontWeight: 700, fontSize: 12.5, marginBottom: 8 }}>
+          ⌨ Keyboard shortcuts — first-time tip
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 18, color: '#9db3cf', fontSize: 12, lineHeight: 1.9 }}>
+          <li><b style={{ color: '#e6edf7' }}>i / q</b> — open / close the start-order popover from the download tray</li>
+          <li><b style={{ color: '#e6edf7' }}>w</b> — flip the popover between the live order and the what-if preview</li>
+          <li><b style={{ color: '#e6edf7' }}>a</b> — apply the previewed speed limits (what-if mode)</li>
+          <li><b style={{ color: '#e6edf7' }}>r</b> — reset the preview back to the live order</li>
+          <li><b style={{ color: '#e6edf7' }}>Esc</b> — close the popover</li>
+          <li><b style={{ color: '#e6edf7' }}>↑ ↓ + Enter</b> — pick / apply a queue plan in the tray switcher (Esc cancels)</li>
+        </ul>
+        <div style={{ color: '#5b6b84', fontSize: 10.5, marginTop: 8, fontStyle: 'italic' }}>
+          One-time tip — shown until you engage with the tray's queue controls (or see this card) once.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="dl-kb-about-compact" style={{ marginTop: 16, color: '#8494ab', fontSize: 11.5, lineHeight: 1.7 }}>
+      <span style={{ color: '#7ce7f7', fontWeight: 600, marginRight: 6 }}>⌨ Tray keyboard shortcuts:</span>
+      i/q popover · w what-if · a apply · r reset · Esc close · switcher ↑↓ + Enter
+    </div>
+  );
+}
+
 const dot = { width: 6, height: 6, borderRadius: 99, display: 'inline-block', flexShrink: 0 };
 
 /** One engine's health status line (Settings → Search sources). */
-function HealthLine({ record, running, demo }) {
+function HealthLine({ record, running, demo, homepage, engineId }) {
   const base = { fontSize: 11.5, marginTop: 5, display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1.4 };
   if (demo) {
     return (
@@ -46,9 +101,31 @@ function HealthLine({ record, running, demo }) {
     );
   }
   return (
-    <div style={{ ...base, color: '#fb7185' }}>
-      <span style={{ ...dot, background: '#fb7185' }} />
-      failing — {record.error || 'unknown error'}{when}
+    <div style={{ ...base, color: '#fb7185', alignItems: 'flex-start' }}>
+      <span style={{ ...dot, background: '#fb7185', marginTop: 4 }} />
+      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+        failing — {record.error || 'unknown error'}{when}
+      </span>
+      {homepage && (
+        <button
+          type="button"
+          data-testid={`health-open-${engineId}`}
+          className="app-nodrag"
+          onClick={() => window.torrentor.openExternal(homepage)}
+          style={{
+            flexShrink: 0,
+            background: 'transparent',
+            border: '1px solid #fb718555',
+            borderRadius: 6,
+            color: '#fda4af',
+            padding: '3px 7px',
+            fontSize: 10.5,
+            cursor: 'pointer',
+          }}
+        >
+          Open source
+        </button>
+      )}
     </div>
   );
 }
@@ -78,7 +155,7 @@ const primaryBtn = {
   cursor: 'pointer',
 };
 
-module.exports = function SettingsModal({ engines, prefs, version, historyCount, health, healthRunning, onLoadHealth, onRunHealth, onClose, onSetEngines, onSetPrefs, onClearHistory }) {
+module.exports = function SettingsModal({ engines, prefs, version, historyCount, health, healthRunning, onLoadHealth, onRunHealth, onClose, onSetEngines, onSetPrefs, onClearHistory, onKbHintDone }) {
   const [tab, setTab] = useState('engines');
   const [proxy, setProxy] = useState(null);
   const [ip, setIp] = useState(null);
@@ -298,7 +375,7 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                       </div>
                       <div style={{ color: '#8494ab', fontSize: 12, marginTop: 3, lineHeight: 1.45 }}>{e.tagline}</div>
                       <div data-testid={`health-status-${e.id}`}>
-                        <HealthLine record={health.find((h) => h.engineId === e.id)} running={healthRunning} demo={e.demo} />
+                        <HealthLine record={health.find((h) => h.engineId === e.id)} running={healthRunning} demo={e.demo} homepage={e.homepage} engineId={e.id} />
                       </div>
                     </div>
                     <Switch on={on} onChange={() => onSetEngines(e.id)} />
@@ -673,6 +750,7 @@ module.exports = function SettingsModal({ engines, prefs, version, historyCount,
                 Torrenting is a technology, not a crime — the same magnet links carry Linux ISOs, open movies and public-domain books. Please only
                 download or share content you are legally entitled to. License: MIT.
               </p>
+              <KbAboutCard seen={!!(prefs && prefs.queueKbHintSeen)} onDone={onKbHintDone} />
             </div>
           )}
         </div>

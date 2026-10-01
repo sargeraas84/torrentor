@@ -1,6 +1,6 @@
 'use strict';
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, queryMatches, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'eztv',
@@ -17,8 +17,7 @@ const API = 'https://eztvx.to/api/get-torrents';
 const MAX_RESULTS = 50;
 
 function matchesQuery(title, query) {
-  const hay = String(title || '').toLowerCase();
-  return queryTokens(query).some((token) => hay.includes(token));
+  return queryMatches(query, title);
 }
 
 function normalizeTorrent(row, query) {

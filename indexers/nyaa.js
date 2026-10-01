@@ -8,7 +8,7 @@
 // operator should review the source and each result before downloading.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, queryMatches, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'nyaa',
@@ -60,10 +60,7 @@ function allowedCategory(categoryId) {
 }
 
 function matchesQuery(title, query) {
-  const tokens = queryTokens(query);
-  if (!tokens.length) return false;
-  const hay = String(title || '').toLowerCase();
-  return tokens.some((token) => hay.includes(token));
+  return queryMatches(query, title);
 }
 
 function normalizeItem(block, query) {

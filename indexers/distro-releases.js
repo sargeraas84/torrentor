@@ -10,7 +10,7 @@
 // highest, vague queries return the top of the feed instead.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, allQueryTokensMatch, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'distro-releases',
@@ -179,7 +179,6 @@ async function collectTorrents(ctx) {
 async function search(query, ctx) {
   const q = String(query || '').trim();
   if (q.length < 2) return [];
-  const tokens = queryTokens(q);
   let torrents;
   try {
     torrents = await collectTorrents(ctx);
@@ -194,13 +193,12 @@ async function search(query, ctx) {
       const label = t.label.replace(/\.torrent$/i, '');
       const title = `${label.replace(/_/g, ' ')} — official release`;
       const relevance = tokenHitScore(q, label);
-      const hasAllTokens = tokens.every((tok) => label.toLowerCase().includes(tok));
+      const hasAllTokens = allQueryTokensMatch(q, label);
       return { t, title, relevance, hasAllTokens };
     })
-    // Honesty: every significant query token must appear in the filename.
-    // (A bare "iso"/"linux" hit on an otherwise unrelated release is NOT a
-    // match — partial-token leaks like "archlinux iso" → Ubuntu ISOs are
-    // exactly what this gate exists to prevent.)
+    // Honesty: every significant query token must match a whole filename
+    // token (with a conservative one-typo allowance). A bare "iso"/"linux"
+    // hit on an unrelated release is not a match.
     .filter((s) => s.hasAllTokens)
     .sort((a, b) => (b.relevance - a.relevance) || a.t.label.localeCompare(b.t.label))
     .slice(0, 30);

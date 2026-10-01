@@ -12,7 +12,7 @@
 // genuinely matches its filename, never fabricated for unrelated queries.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, allQueryTokensMatch, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'arch-releases',
@@ -60,7 +60,6 @@ async function fetchFeed(ctx) {
 async function search(query, ctx) {
   const q = String(query || '').trim();
   if (q.length < 2) return [];
-  const tokens = queryTokens(q);
   let releases;
   try {
     releases = await fetchFeed(ctx);
@@ -76,10 +75,10 @@ async function search(query, ctx) {
       // like "archlinux iso" genuinely match; only the display title
       // strips the extension.
       const relevance = tokenHitScore(q, r.fileName);
-      // Honesty: every significant query token must appear in the release
-      // filename — a bare "linux"/"iso" hit on an unrelated release is not
-      // a match.
-      const hasAllTokens = tokens.every((tok) => r.fileName.toLowerCase().includes(tok));
+      // Honesty: every significant query token must match a whole token in
+      // the filename (with a conservative one-typo allowance) — a bare
+      // "linux"/"iso" hit on an unrelated release is not a match.
+      const hasAllTokens = allQueryTokensMatch(q, r.fileName);
       return { r, relevance, hasAllTokens };
     })
     .filter((s) => s.hasAllTokens)

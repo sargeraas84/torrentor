@@ -1,6 +1,6 @@
 'use strict';
 
-const { queryTokens, tokenHitScore } = require('./base');
+const { queryMatches, tokenHitScore } = require('./base');
 
 function decodeEntities(value) {
   return String(value || '')
@@ -39,9 +39,7 @@ function absoluteUrl(href, baseUrl) {
 }
 
 function matchesQuery(text, query) {
-  const hay = String(text || '').toLowerCase();
-  const tokens = queryTokens(query);
-  return tokens.length > 0 && tokens.some((token) => hay.includes(token));
+  return queryMatches(query, text);
 }
 
 function extractInfohash(text) {

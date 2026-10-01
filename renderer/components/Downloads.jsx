@@ -274,6 +274,14 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
   // be driven, retired permanently on any real interaction (its ×, opening
   // the popover, using a hotkey, closing) — see retireHint below.
   const [hintConsumed, setHintConsumed] = useState(false);
+  // If the shared seen-flag is deliberately re-armed (for example by a
+  // first-use help flow or an automated smoke test), start a fresh local
+  // hint cycle even when the tray component itself stayed mounted.
+  const previousKbHint = React.useRef(kbHint);
+  useEffect(() => {
+    if (kbHint && previousKbHint.current === false) setHintConsumed(false);
+    previousKbHint.current = kbHint;
+  }, [kbHint]);
   // Smart-order popover state as ONE reducer unit (see queueUiReducer
   // above): open / what-if / preview patch / folder patch / re-rank order /
   // save-as-plan name + optional ACTIVE-WINDOW rule (e.g. a 'night' plan
@@ -466,6 +474,17 @@ function DownloadTray({ downloads, onCancel, onClear, onRetry, onReveal, onLimit
     setHintConsumed(true);
     if (onKbHintDone) onKbHintDone();
   };
+  // The one-time hint also AUTO-HIDES after ~10 s without any interaction,
+  // so a first-time user is never nagged mid-queue. The auto-hide is
+  // session-only: it does NOT persist the seen-flag (the user may not have
+  // read it yet), so the full keyboard card in Settings → About can still
+  // teach once, and the tray hint can return on a later session until a
+  // real engagement retires it permanently.
+  useEffect(() => {
+    if (!(smartOrder && queuedItems.length > 0 && kbHint && !hintConsumed)) return undefined;
+    const t = setTimeout(() => setHintConsumed(true), 10000);
+    return () => clearTimeout(t);
+  }, [smartOrder, queuedItems.length, kbHint, hintConsumed]);
   const openOverlapPopover = () => {
     if (smartOrder && queuedItems.length > 0) {
       dispatchUi({ type: 'open' });

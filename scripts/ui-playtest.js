@@ -511,6 +511,16 @@ async function main() {
   const ovIds = await js(`(async () => { const rs = await Promise.all(['demo:ov0', 'demo:ov1', 'demo:ov2'].map((u) => window.torrentor.downloadFile(u))); return rs.map((r) => r && r.transfer && r.transfer.id).filter(Boolean); })()`);
   if (!ovIds || ovIds.length < 3) throw new Error('overlap-click seed transfers did not start');
   await waitFor('a queued transfer exists to anchor the popover', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length >= 1`, 10000);
+  // Drain guard: pace the overlap-probe ACTIVES down to 25 KB/s so they
+  // outlive the whole hint/timeout/×-dismiss sequence below (the hint needs
+  // a queued file to stay visible; at the 100 KB/s default the actives
+  // would drain in ~7.6 s, promote the queued chip, and drop the hint for
+  // the wrong reason).
+  await js(`(async () => {
+      const actives = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="downloading"]')].map((c) => Number(c.getAttribute('data-id')));
+      await Promise.all(actives.map((id) => window.torrentor.setDownloadLimit(id, 25600)));
+      return actives.length;
+    })()`);
   // First-use keyboard hint: smart order is on with a queued file for the
   // first time in this fresh run, so the one-time hint teaches the tray
   // hotkeys. Its × retires it permanently (persisted prefs flag).
@@ -525,6 +535,30 @@ async function main() {
   const kbSeen = await js(`window.torrentor.getState().then((s) => !!(s.prefs && s.prefs.queueKbHintSeen))`);
   if (!kbSeen) defect('keyboard hint seen-flag persisted', 'queueKbHintSeen pref not set');
   else ok('keyboard hint is one-time — the seen flag persisted on dismiss');
+  // Timeout probe: re-arm the hint for a fresh session (reset the flag,
+  // drop the tray so its component state remounts, reseed a paced queue),
+  // then prove it AUTO-HIDES after ~10 s with zero interaction — and that
+  // the auto-hide is SESSION-ONLY (the seen-flag stays unset, so the full
+  // keyboard card in Settings → About can still teach once).
+  await js(`window.torrentor.setPrefs({ queueKbHintSeen: false })`);
+  await js(`Promise.all(${JSON.stringify(ovIds)}.map((id) => window.torrentor.cancelDownload(id)))`);
+  await js(`window.torrentor.clearDownloads()`);
+  await waitFor('tray unmounts so the hint state starts fresh', `!document.querySelector('[data-testid="download-tray"]')`, 8000);
+  const ov2Ids = await js(`(async () => { const rs = await Promise.all(['demo:ov3', 'demo:ov4', 'demo:ov5'].map((u) => window.torrentor.downloadFile(u))); return rs.map((r) => r && r.transfer && r.transfer.id).filter(Boolean); })()`);
+  if (!ov2Ids || ov2Ids.length < 3) throw new Error('timeout reseed transfers did not start');
+  await waitFor('a queued chip exists for the timeout probe', `document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="queued"]').length >= 1`, 10000);
+  await js(`(async () => {
+      const actives = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"][data-status="downloading"]')].map((c) => Number(c.getAttribute('data-id')));
+      await Promise.all(actives.map((id) => window.torrentor.setDownloadLimit(id, 25600)));
+      return actives.length;
+    })()`);
+  await waitFor('hint reappears on the re-armed session', `!!document.querySelector('[data-testid="download-tray"] [data-testid="dl-kb-hint"]')`, 8000);
+  await wait(10700);
+  await waitFor('hint auto-hides after ~10 s without interaction', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-kb-hint"]')`, 5000);
+  ok('one-time hint times out on its own after ~10 s (no nag mid-queue)');
+  const kbAfterTimeout = await js(`window.torrentor.getState().then((s) => !!(s.prefs && s.prefs.queueKbHintSeen))`);
+  if (kbAfterTimeout) defect('auto-timeout is session-only', 'queueKbHintSeen was persisted by the timeout');
+  else ok('auto-timeout does not burn the seen-flag — the About keyboard card can still teach');
   await click('[data-testid="download-tray"] [data-testid="dl-cap-overlap"]');
   const ovPop = await waitFor('overlap pill click opens the what-if popover pre-selected', `(() => { const pop = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]'); const tg = pop && pop.querySelector('[data-testid="dl-whatif-toggle"]'); return pop && tg && tg.textContent.includes('Live order') ? true : null; })()`, 6000);
   if (!ovPop) throw new Error('overlap click did not open the what-if popover');
@@ -536,8 +570,8 @@ async function main() {
   await waitFor('drill-down returns to the live order before closing', `(() => { const tg = document.querySelector('[data-testid="download-tray"] [data-testid="dl-whatif-toggle"]'); return tg && tg.textContent.includes('What if') ? true : null; })()`, 6000);
   await click('[data-testid="download-tray"] [data-testid="dl-smart-pop-close"]');
   await waitFor('popover closes after the overlap drill-down', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-pop"]')`, 6000);
-  await js(`Promise.all(${JSON.stringify(ovIds)}.map((id) => window.torrentor.cancelDownload(id)))`);
-  await waitFor('overlap probe downloads settle before the next block', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"]')].some((c) => { const id = Number(c.getAttribute('data-id')); const s = c.getAttribute('data-status'); return (s === 'downloading' || s === 'queued') && ${JSON.stringify(ovIds)}.indexOf(id) >= 0; })`, 10000);
+  await js(`Promise.all(${JSON.stringify(ov2Ids)}.map((id) => window.torrentor.cancelDownload(id)))`);
+  await waitFor('overlap probe downloads settle before the next block', `![...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"]')].some((c) => { const id = Number(c.getAttribute('data-id')); const s = c.getAttribute('data-status'); return (s === 'downloading' || s === 'queued') && ${JSON.stringify(ov2Ids)}.indexOf(id) >= 0; })`, 10000);
   await click('[data-testid="download-tray"] [data-testid="dl-smart-order"]');
   await waitFor('smart order restored to off after the overlap probe', `(() => { const b = document.querySelector('[data-testid="download-tray"] [data-testid="dl-smart-order"]'); return b && b.getAttribute('data-on') === '0'; })()`, 6000);
   ok('overlap drill-down cleaned up (smart order off, probe transfers cancelled)');
@@ -555,6 +589,38 @@ async function main() {
   await click('[data-testid="close-settings"]');
   await waitFor('night pill leaves the tray header once disabled', `!document.querySelector('[data-testid="download-tray"] [data-testid="dl-night"]')`, 8000);
   ok('night mode disabled — tray hint clears');
+
+  // ===== 9b. Help-menu keyboard card (Settings → About) =====
+  // The full keyboard card shares the tray hint's seen-flag: while the
+  // flag is unset (the auto-timeout above deliberately did NOT burn it) it
+  // renders as the FULL onboarding card and retires the flag — shown once
+  // ANYWHERE means never again in either place — then later visits show a
+  // compact reference line instead.
+  await click('[data-testid="open-settings"]');
+  await waitFor('settings open for the About keyboard card', `!!document.querySelector('[data-testid="st-about"]')`, 8000);
+  await click('[data-testid="st-about"]');
+  const kbCard = await waitFor(
+    'About shows the full keyboard card while the flag is unset',
+    `(() => { const c = document.querySelector('[data-testid="dl-kb-about-card"]'); return c && c.textContent.indexOf('i / q') >= 0 && c.textContent.indexOf('what-if') >= 0 && c.textContent.indexOf('switcher') >= 0 ? c.textContent.split(String.fromCharCode(10)).join(' ').trim() : null; })()`,
+    8000
+  );
+  ok('help menu teaches the full keyboard card on first encounter', String(kbCard).replace(/\s+/g, ' ').slice(0, 60));
+  const kbSeenByCard = await js(`window.torrentor.getState().then((s) => !!(s.prefs && s.prefs.queueKbHintSeen))`);
+  if (!kbSeenByCard) defect('About card retired the shared seen-flag', 'queueKbHintSeen not set after viewing About');
+  else ok('the About card shares the seen-flag — viewing it retires the tray hint too');
+  await click('[data-testid="close-settings"]');
+  await waitFor('settings closed after the About card', `!document.querySelector('[data-testid="st-about"]')`, 8000);
+  await click('[data-testid="open-settings"]');
+  await waitFor('settings reopened to confirm the compact card', `!!document.querySelector('[data-testid="st-about"]')`, 8000);
+  await click('[data-testid="st-about"]');
+  await waitFor(
+    'About collapses to the compact reference once seen',
+    `(() => { const full = document.querySelector('[data-testid="dl-kb-about-card"]'); const compact = document.querySelector('[data-testid="dl-kb-about-compact"]'); return !full && compact && compact.textContent.indexOf('switcher') >= 0 ? true : null; })()`,
+    8000
+  );
+  ok('the full keyboard card shows once — later visits show the compact reference');
+  await click('[data-testid="close-settings"]');
+  await waitFor('settings closed after the compact card check', `!document.querySelector('[data-testid="st-about"]')`, 8000);
 
   // ===== 10. Drag-and-drop reorders the start queue =====
   // Seed four paced demo downloads (the 100 KB/s default keeps both active
@@ -946,12 +1012,13 @@ async function main() {
   ok('keyboard arrows + Enter clear the applied plan from the switcher');
   // Lift every limit so the seeded batch drains fast, then confirm the
   // Library view's per-source tallies picked up all completed transfers.
-  await js(`(async () => {
-      const ids = [...document.querySelectorAll('[data-testid="download-tray"] [data-testid="dl-chip"]')].map((c) => Number(c.getAttribute('data-id')));
-      await Promise.all(ids.map((id) => window.torrentor.setDownloadLimit(id, 0)));
-      return ids.length;
-    })()`);
-  await waitFor('all seeded demo transfers finish', `(() => { const t = document.querySelector('[data-testid="download-tray"]'); return t && (t.innerText.match(/Done/g) || []).length >= 5; })()`, 30000);
+  const drainIds = await js(`window.torrentor.getDownloads().then((list) => list.filter((d) => d.status === 'downloading' || d.status === 'queued').map((d) => d.id))`);
+  await js(`Promise.all(${JSON.stringify(drainIds)}.map((id) => window.torrentor.setDownloadLimit(id, 0)))`);
+  await waitFor(
+    'all seeded demo transfers finish',
+    `window.torrentor.getDownloads().then((list) => { const live = list.filter((d) => d.status === 'downloading' || d.status === 'queued'); const done = list.filter((d) => d.status === 'done' && String(d.url || '').startsWith('demo:')).length; return live.length === 0 && done >= 4; })`,
+    30000
+  );
   await click('[data-testid="tab-favorites"]');
   await waitFor('downloads-by-source panel on the Library view', `(() => { const p = document.querySelector('[data-testid="dl-stats"]'); return p && p.innerText.includes('Demo'); })()`, 6000);
   const statsTxt = await textOf('[data-testid="dl-stats"]');

@@ -116,6 +116,24 @@ async function main() {
     assert.ok(!magnet.isSafeExternalUrl('not a url'));
   });
 
+  ok('shared relevance score is typo tolerant without admitting substring matches', () => {
+    const { queryTokens, tokensMatch, queryMatches, allQueryTokensMatch, tokenHitScore } = require('../indexers/base');
+    assert.deepStrictEqual(queryTokens('Ubuntu 24.04 (LTS)'), ['ubuntu', '24', '04', 'lts']);
+    assert.strictEqual(tokenHitScore('Star Wars', 'Star Wars'), 1, 'exact title receives the maximum score');
+    assert.ok(tokenHitScore('Star Wars', 'The Star Wars Story') > tokenHitScore('Star Wars', 'Wars Across the Stars'));
+    assert.strictEqual(tokenHitScore('art', 'party'), 0, 'partial token is not a match');
+    assert.ok(tokenHitScore('ubuntu 24.04', 'Ubuntu 24.04 desktop ISO') > 0.7, 'punctuation-separated versions remain searchable');
+    assert.strictEqual(tokensMatch('ubnutu', 'ubuntu'), true, 'one substitution typo matches');
+    assert.strictEqual(tokensMatch('starw', 'star wars'), false, 'words are never matched as substrings');
+    assert.strictEqual(tokensMatch('art', 'party'), false, 'short tokens are exact-only');
+    assert.strictEqual(tokensMatch('form', 'from'), true, 'adjacent transposition matches');
+    assert.strictEqual(queryMatches('ubnutu', 'Ubuntu 24.04 ISO'), true);
+    assert.strictEqual(queryMatches('ubuntu', 'party'), false);
+    assert.strictEqual(allQueryTokensMatch('ubnutu 24.04', 'Ubuntu 24.04 desktop ISO'), true);
+    assert.strictEqual(allQueryTokensMatch('ubuntu ubuntu', 'Ubuntu ISO'), false, 'one title token cannot satisfy repeated query tokens');
+    assert.ok(tokenHitScore('ubnutu', 'Ubuntu') < tokenHitScore('ubuntu', 'Ubuntu'), 'fuzzy matches are scored below exact matches');
+  });
+
   // ------------------------------ registry -----------------------------
   const registry = require('../indexers/registry');
   ok('registry allowlist integrity', () => {
@@ -186,11 +204,13 @@ async function main() {
   });
   ok('archive relevance gate: only genuine title/identifier matches pass', () => {
     assert.strictEqual(archive.matchesQuery({ title: 'Ubuntu Desktop ISO', identifier: 'x' }, 'ubuntu'), true);
+    assert.strictEqual(archive.matchesQuery({ title: 'Ubunty Desktop ISO', identifier: 'x' }, 'ubuntu'), true, 'one title typo tolerated');
     assert.strictEqual(archive.matchesQuery({ title: 'Collection of ISO images', identifier: 'ubuntu-24.04-live' }, 'ubuntu'), true, 'identifier slug matches');
     assert.strictEqual(archive.matchesQuery({ title: 'MAME 0.149 ROM Collection', identifier: 'mame-roms' }, 'ubuntu'), false, 'metadata-mention items are gated out');
     assert.strictEqual(archive.matchesQuery({ title: 'The Tiny 11 Build', identifier: 'tiny-11' }, 'ubuntu'), false);
     assert.strictEqual(archive.matchesQuery({ title: 'Ubuntu & Debian guides', identifier: 'x' }, 'debian'), true, 'multi-word query partial match');
     assert.strictEqual(archive.matchesQuery({ title: 'x', identifier: 'y' }, 'ubuntu'), false);
+    assert.strictEqual(archive.matchesQuery({ title: 'Party', identifier: 'x' }, 'art'), false, 'substring-only title hit is rejected');
   });
   ok('archive normalization drops junk + non-matching rows', () => {
     assert.strictEqual(archive.normalizeItem({ identifier: '', title: 'x' }, 'q'), null);
@@ -496,9 +516,49 @@ async function main() {
     assert.deepStrictEqual(yts.cleanResponse({}, 'movie'), []);
     assert.strictEqual(yts.bestTorrent([{ hash: 'a'.repeat(40), url: 'u', quality: '1080p', seeds: 1 }, { hash: 'b'.repeat(40), url: 'v', quality: '720p', seeds: 1 }]).quality, '720p');
     assert.strictEqual(yts.matchesQuery('A movie title', 'zzzz'), false);
+    assert.strictEqual(yts.matchesQuery('The Inceptoin Movie', 'inception'), true, 'one-character typo can still find a title');
+    assert.strictEqual(yts.matchesQuery('Party', 'art'), false, 'substring-only matches do not leak in');
+  });
+  ok('yts known-title health probe returns a result from the configured API', async () => {
+    let requestedUrl = '';
+    const results = await yts.search('inception', {
+      timeoutMs: 1000,
+      signal: null,
+      network: {
+        getJson: async (url) => {
+          requestedUrl = url;
+          return {
+            data: {
+              movies: [{
+                id: 1,
+                title: 'Inception',
+                year: 2010,
+                torrents: [{ hash: 'ab'.repeat(20), url: 'https://example.test/inception.torrent', quality: '720p', seeds: 1, size_bytes: 100 }],
+              }],
+            },
+          };
+        },
+      },
+    });
+    assert.ok(requestedUrl.startsWith(`${yts.API}?query_term=inception&`));
+    assert.strictEqual(results.length, 1);
+    assert.match(results[0].title, /Inception/);
   });
 
   // ---------------------- additional community helpers -----------------
+  const blocked1337x = require('../indexers/1337x');
+  ok('1337x reports anti-bot 403 clearly without retrying or bypassing it', async () => {
+    let requests = 0;
+    await assert.rejects(
+      () => blocked1337x.search('ubuntu', {
+        timeoutMs: 1000,
+        signal: null,
+        network: { getText: async () => { requests++; throw new Error('HTTP 403 Forbidden'); } },
+      }),
+      /blocking automated requests.*HTTP 403.*open the source page in a browser/i
+    );
+    assert.strictEqual(requests, 1, 'single request; no challenge bypass or retry');
+  });
   const communityHtml = require('../indexers/community-html');
   ok('community HTML parser extracts honest page results and inline metadata', () => {
     const html = `<div class="row"><a href="/torrent/ubuntu-iso">Ubuntu 24.04 ISO</a><span>1.5 GiB</span><span>Seeds: 42</span><span>Peers: 3</span><span>2026-09-01</span><a href="magnet:?xt=urn:btih:${'ab'.repeat(20)}">magnet</a></div>`;
@@ -543,6 +603,7 @@ async function main() {
   ok('requested community engine homepages and API endpoints are canonical', () => {
     const yts = require('../indexers/yts');
     assert.strictEqual(registry.get('yts').homepage, 'https://web.yts.gg/');
+    assert.strictEqual(registry.get('yts').probe, 'inception', 'health probe matches a known title in the API');
     assert.strictEqual(yts.API, 'https://movies-api.accel.li/api/v2/list_movies.json');
     assert.strictEqual(registry.get('1337x').homepage, 'https://1337x.to/');
     assert.strictEqual(registry.get('nyaa').homepage, 'https://nyaa.si/');
@@ -740,26 +801,35 @@ async function main() {
     );
   });
 
-  ok('sortResults modes', () => {
+  ok('sortResults modes rank best matches by default and retain explicit alternatives', () => {
     const list = [
-      { title: 'big', seeders: 1, sizeBytes: 300, uploadedAt: 1 },
-      { title: 'popular', seeders: 900, sizeBytes: 10, uploadedAt: 3 },
-      { title: 'nope', seeders: null, sizeBytes: 500, uploadedAt: 2 },
+      { title: 'Big', seeders: 1, relevance: 0.8, sizeBytes: 300, uploadedAt: 1 },
+      { title: 'Popular', seeders: 900, relevance: 0.2, sizeBytes: 10, uploadedAt: 3 },
+      { title: 'Unrated', seeders: null, relevance: 0.1, sizeBytes: 500, uploadedAt: 2 },
     ];
-    const bySeeders = sortResults(list, 'seeders').map((r) => r.title);
-    assert.deepStrictEqual(bySeeders, ['popular', 'big', 'nope']);
-    assert.deepStrictEqual(sortResults(list, 'size').map((r) => r.title), ['nope', 'big', 'popular']);
-    assert.deepStrictEqual(sortResults(list, 'newest').map((r) => r.title), ['popular', 'nope', 'big']);
+    assert.deepStrictEqual(sortResults(list).map((r) => r.title), ['Big', 'Popular', 'Unrated'], 'default sort prioritizes relevance');
+    assert.deepStrictEqual(sortResults(list, 'relevance').map((r) => r.title), ['Big', 'Popular', 'Unrated']);
+    assert.deepStrictEqual(sortResults(list, 'seeders').map((r) => r.title), ['Popular', 'Big', 'Unrated']);
+    assert.deepStrictEqual(sortResults(list, 'size').map((r) => r.title), ['Unrated', 'Big', 'Popular']);
+    assert.deepStrictEqual(sortResults(list, 'newest').map((r) => r.title), ['Popular', 'Unrated', 'Big']);
+    const demoLast = [
+      { title: 'Real', demo: false, seeders: 0, sizeBytes: 1, uploadedAt: 1, relevance: 0 },
+      { title: 'Demo', demo: true, seeders: 9999, sizeBytes: 9999, uploadedAt: 9999, relevance: 1 },
+    ];
+    for (const mode of ['relevance', 'seeders', 'size', 'newest']) {
+      assert.strictEqual(sortResults(demoLast, mode)[0].title, 'Real', `${mode} keeps genuine results above Demo`);
+    }
   });
 
-  ok('default sort: real results always rank above demo fixtures', () => {
+  ok('best-match sorting puts relevance first and always keeps real results above Demo', () => {
     const list = [
-      { title: 'demo shiny', demo: true, seeders: 999, relevance: 0.9, sizeBytes: 1 },
-      { title: 'real match', demo: false, seeders: 2, relevance: 0.4, sizeBytes: 100 },
-      { title: 'real big generic', demo: false, seeders: null, relevance: 0, sizeBytes: 10 ** 9 },
+      { title: 'Demo fixture', demo: true, seeders: 999, relevance: 1, sizeBytes: 1 },
+      { title: 'Exact match', demo: false, seeders: 2, relevance: 0.95, sizeBytes: 100 },
+      { title: 'Popular loose match', demo: false, seeders: 9000, relevance: 0.25, sizeBytes: 10 ** 9 },
+      { title: 'Unscored real', demo: false, seeders: null, sizeBytes: 20 },
     ];
-    const bySeeders = sortResults(list, 'seeders').map((r) => r.title);
-    assert.deepStrictEqual(bySeeders, ['real match', 'real big generic', 'demo shiny'], 'demo cannot outrank real results');
+    assert.deepStrictEqual(sortResults(list).map((r) => r.title), ['Exact match', 'Popular loose match', 'Unscored real', 'Demo fixture']);
+    assert.deepStrictEqual(sortResults(list, 'seeders').map((r) => r.title), ['Popular loose match', 'Exact match', 'Unscored real', 'Demo fixture']);
   });
 
   ok('mergeIncremental: next page merges deduped into the shown list', () => {
@@ -787,7 +857,7 @@ async function main() {
       { title: 'big generic', demo: false, seeders: null, relevance: 0.1, sizeBytes: 10 ** 10 },
       { title: 'small perfect', demo: false, seeders: null, relevance: 0.9, sizeBytes: 10 },
     ];
-    assert.deepStrictEqual(sortResults(list, 'seeders').map((r) => r.title), ['small perfect', 'big generic']);
+    assert.deepStrictEqual(sortResults(list).map((r) => r.title), ['small perfect', 'big generic']);
   });
 
   // ------------------------------ storage ------------------------------

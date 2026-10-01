@@ -85,14 +85,105 @@ function queryTokens(query) {
     .filter((t) => t.length >= 2);
 }
 
-/** Simple scorer: fraction of query tokens present in a candidate string. */
-function tokenHitScore(query, candidate) {
-  const tokens = queryTokens(query);
-  if (!tokens.length) return 0;
-  const hay = String(candidate || '').toLowerCase();
-  let hits = 0;
-  for (const t of tokens) if (hay.includes(t)) hits++;
-  return hits / tokens.length;
+/** Return true when two tokens are identical or differ by one character. */
+function tokensMatch(queryToken, candidateToken) {
+  if (queryToken === candidateToken) return true;
+  if (/^\d+$/.test(queryToken) || /^\d+$/.test(candidateToken)) return false;
+  if (queryToken.length < 4 || candidateToken.length < 4 || Math.abs(queryToken.length - candidateToken.length) > 1) return false;
+
+  // Bounded Damerau-Levenshtein check: one insertion, deletion, substitution,
+  // or adjacent transposition. This catches common typos without turning
+  // short words or arbitrary substrings into matches.
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < queryToken.length && j < candidateToken.length) {
+    if (queryToken[i] === candidateToken[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (i + 1 < queryToken.length && j + 1 < candidateToken.length &&
+        queryToken[i] === candidateToken[j + 1] && queryToken[i + 1] === candidateToken[j]) {
+      i += 2;
+      j += 2;
+    } else if (queryToken.length > candidateToken.length) {
+      i++;
+    } else if (queryToken.length < candidateToken.length) {
+      j++;
+    } else {
+      i++;
+      j++;
+    }
+  }
+  if (i < queryToken.length || j < candidateToken.length) edits++;
+  return edits === 1;
 }
 
-module.exports = { normalizeResult, sanitizeList, queryTokens, tokenHitScore, categorizeTitle };
+function matchQueryTokens(tokens, candidateTokens) {
+  const qualities = tokens.map(() => 0);
+  const used = new Set();
+
+  // Reserve exact matches first so a nearby fuzzy token can't consume the
+  // only candidate available to another query token.
+  for (let q = 0; q < tokens.length; q++) {
+    const match = candidateTokens.findIndex((candidateToken, i) => !used.has(i) && tokens[q] === candidateToken);
+    if (match >= 0) {
+      used.add(match);
+      qualities[q] = 1;
+    }
+  }
+  for (let q = 0; q < tokens.length; q++) {
+    if (qualities[q]) continue;
+    const match = candidateTokens.findIndex((candidateToken, i) => !used.has(i) && tokensMatch(tokens[q], candidateToken));
+    if (match >= 0) {
+      used.add(match);
+      qualities[q] = 0.45;
+    }
+  }
+  return qualities;
+}
+
+function queryMatches(query, candidate) {
+  const tokens = queryTokens(query);
+  const candidateTokens = queryTokens(candidate);
+  return matchQueryTokens(tokens, candidateTokens).some((quality) => quality > 0);
+}
+
+function allQueryTokensMatch(query, candidate) {
+  const tokens = queryTokens(query);
+  const candidateTokens = queryTokens(candidate);
+  return tokens.length > 0 && matchQueryTokens(tokens, candidateTokens).every((quality) => quality > 0);
+}
+
+/**
+ * Score title relevance on a stable 0–1 scale. Whole-token coverage is the
+ * foundation; a one-character typo remains a partial match, while matching
+ * in order and as a phrase raises confidence. Incidental substrings ("art"
+ * in "party") never count as matches.
+ */
+function tokenHitScore(query, candidate) {
+  const tokens = queryTokens(query);
+  const titleTokens = queryTokens(candidate);
+  if (!tokens.length || !titleTokens.length) return 0;
+
+  const qualities = matchQueryTokens(tokens, titleTokens);
+  const coverage = qualities.reduce((sum, quality) => sum + quality, 0) / tokens.length;
+  let ordered = 0;
+  let cursor = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const next = titleTokens.findIndex((titleToken, titleIndex) => titleIndex >= cursor && tokensMatch(tokens[i], titleToken));
+    if (next < 0) continue;
+    ordered += tokens[i] === titleTokens[next] ? 1 : 0.45;
+    cursor = next + 1;
+  }
+  let phrase = false;
+  for (let start = 0; start <= titleTokens.length - tokens.length && !phrase; start++) {
+    phrase = tokens.every((token, i) => titleTokens[start + i] === token);
+  }
+  const exactTitle = titleTokens.length === tokens.length && phrase;
+  return Math.min(1, coverage * 0.62 + (ordered / tokens.length) * 0.12 + (phrase ? 0.2 : 0) + (exactTitle ? 0.06 : 0));
+}
+
+module.exports = { normalizeResult, sanitizeList, queryTokens, tokensMatch, queryMatches, allQueryTokensMatch, tokenHitScore, categorizeTitle };

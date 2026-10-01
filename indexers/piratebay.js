@@ -20,7 +20,7 @@
 //    always, regardless of what the user searches for.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, queryTokens, tokenHitScore } = require('./base');
+const { normalizeResult, queryMatches, tokenHitScore } = require('./base');
 
 const ENGINE = {
   id: 'piratebay',
@@ -68,10 +68,7 @@ function decodeEntities(s) {
 
 /** Honesty gate: a row counts only when a significant token hits its name. */
 function matchesQuery(name, query) {
-  const tokens = queryTokens(query);
-  if (!tokens.length) return false;
-  const hay = String(name || '').toLowerCase();
-  return tokens.some((t) => hay.includes(t));
+  return queryMatches(query, name);
 }
 
 /**

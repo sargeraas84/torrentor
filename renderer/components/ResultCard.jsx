@@ -101,15 +101,15 @@ function Menu({ result, isFav, onAction, onOpenChange }) {
       {open && menuPos && createPortal(
         <div
           ref={portalRef}
-          className="fade-in"
           style={{
             position: 'fixed',
             top: menuPos.top,
             right: menuPos.right,
             zIndex: 1000,
             minWidth: 205,
-            background: '#0f1a2e',
+            background: '#0b1322',
             opacity: 1,
+            isolation: 'isolate',
             border: '1px solid #22314b',
             borderRadius: 10,
             boxShadow: '0 16px 40px rgba(0,0,0,.7)',
