@@ -95,7 +95,7 @@
               </div>
               <div class="card">
                 <h3 style="margin-bottom: 8px;">Help test the current build</h3>
-                <p>Download the published <b>v1.4.14</b> installers from the <a href="index.html#download">website download section</a>, try the offline <b>Demo</b> source first, and report reproducible bugs or usability feedback on <a href="https://github.com/sargeraas84/torrentor/issues">GitHub Issues ↗</a>. Include your OS, app version, steps to reproduce, and relevant logs; never post passwords, private files, IP addresses, or other personal data.</p>
+                <p>Download the current published <b>v1.4.14</b> installers from the <a href="index.html#download">website download section</a>, try the offline <b>Demo</b> source first, and report reproducible bugs or usability feedback on <a href="https://github.com/sargeraas84/torrentor/issues">GitHub Issues ↗</a>. Include your OS, app version, steps to reproduce, and relevant logs; never post passwords, private files, IP addresses, or other personal data.</p>
                 <p style="margin-bottom: 0; color: var(--mut2);">Only enable optional community sources and download or share material you are legally entitled to access. The project is also available on <a href="https://github.com/sargeraas84/torrentor">GitHub ↗</a> for source review and contributions.</p>
               </div>
               <p>Searching works out of the box: type <b>ubuntu</b>, <b>blender open movie</b> or <b>moby dick audiobook</b> and hit enter. With zero network, the <b>Demo</b> engine still shows the full flow (every Demo card is labeled).</p>
@@ -126,7 +126,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <p>Then register it in <code>indexers/registry.js</code>. If the source is real and probe-able, add a known-good <code>probe</code> term so the engine-health self-test covers it.</p>
               <div class="card">
                 <h3 style="margin-bottom: 8px;">Included opt-in community sources</h3>
-                <p><b>The Pirate Bay</b> uses the apibay JSON mirror; <b>Nyaa</b> reads its RSS feed; and <b>YTS</b> uses its official movie API while linking back to <code>web.yts.gg</code>. All three are disabled on fresh installs, appear as separate toggles in Settings → Search sources, and remain subject to the app's honesty and adult-content filters. Enable only sources whose terms and content you have reviewed.</p>
+                <p><b>The Pirate Bay</b> uses the apibay JSON mirror; <b>Nyaa</b> reads its RSS feed; and <b>YTS</b> uses the YTS JSON API, with a known-title health probe. <b>1337x</b> may reject automated requests with HTTP 403; the app reports that honestly and offers an <b>Open source</b> action instead of bypassing its protections. These community sources are disabled on fresh installs, appear as separate toggles in Settings → Search sources, and remain subject to the app's honesty and adult-content filters. Enable only sources whose terms and content you have reviewed.</p>
               </div>
               <div class="note"><b>You own the decision.</b> Review the source's terms, rate limits and content policy before adding it. Torrentor ships legal-friendly sources by default; adding an index is a deliberate operator choice.</div>
             </div>
@@ -166,8 +166,8 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <tr><td>Arch Linux</td><td><code>archlinux</code></td></tr>
                   <tr><td>The Pirate Bay</td><td><code>ubuntu</code> — opt-in community mirror</td></tr>
                   <tr><td>Nyaa</td><td><code>one piece</code> — opt-in RSS community index</td></tr>
-                  <tr><td>YTS</td><td><code>open movie</code> — opt-in <code>web.yts.gg</code> catalog via its official API host</td></tr>
-                  <tr><td>1337x</td><td><code>ubuntu</code> — opt-in <code>1337x.to</code>; may reject automated probes with HTTP 403</td></tr>
+                  <tr><td>YTS</td><td><code>inception</code> — opt-in known-title probe against the YTS JSON API</td></tr>
+                  <tr><td>1337x</td><td><code>ubuntu</code> — opt-in <code>1337x.to</code>; automated requests may be rejected with HTTP 403, with an Open source action</td></tr>
                   <tr><td>EZTV</td><td><code>the office</code> — opt-in TV API</td></tr>
                   <tr><td>TorrentDownloads</td><td><code>ubuntu</code> — opt-in community index</td></tr>
                   <tr><td>LimeTorrents</td><td><code>ubuntu</code> — opt-in community index</td></tr>
@@ -188,7 +188,7 @@ module.exports = { engine: ENGINE, search };</code></pre>
                   <li><b>Bump + changelog.</b> Raise <code>version</code> in <code>package.json</code>, add the <a href="#changelog">changelog</a> entry, commit, push, and again wait for <code>ci</code> to go green.</li>
                   <li><b>Tag and push.</b> <code>git tag vX.Y.Z && git push origin vX.Y.Z</code> — the <b>release</b> workflow builds Windows (installer + portable <code>.exe</code>) and macOS (universal <code>.dmg</code> + <code>.zip</code>), then opens a <b>draft release</b> with all four archives attached.</li>
                   <li><b>Check the draft.</b> All four artifacts present, none of the unpacked app dirs.</li>
-                  <li><b>Smoke it.</b> Download an installer and confirm fresh-install behavior — the published v1.4.14 assets are linked from the <a href="https://github.com/sargeraas84/torrentor/releases/tag/v1.4.14">release page ↗</a>, and opt-in community sources stay off until the user enables them.</li>
+                  <li><b>Smoke it.</b> Download an installer from the new draft release and confirm fresh-install behavior before publishing it; opt-in community sources stay off until the user enables them.</li>
                   <li><b>Publish</b> the draft from the Releases page when ready. That's the whole process — the download badge updates itself.</li>
                 </ol>
               </div>
@@ -199,19 +199,37 @@ module.exports = { engine: ENGINE, search };</code></pre>
               <h2>Changelog</h2>
               <p>What changed, release by release. Full notes always live on <a href="https://github.com/sargeraas84/torrentor/releases">GitHub Releases ↗</a>.</p>
               <div class="card">
-                <h3 style="margin-bottom: 4px;">Installer downloads — v1.4.14</h3>
-                <p>The website download section links directly to all four published artifacts:</p>
+                <h3 style="margin-bottom: 4px;">Installer downloads — current public release</h3>
+                <p>The website links directly to the four artifacts in the latest published v1.4.14 release. The app updates below are prepared for upcoming releases.</p>
                 <ul>
                   <li><a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.14/Torrentor-Setup-1.4.14.exe"><b>Windows installer</b></a> · <a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.14/Torrentor-1.4.14-portable.exe">Windows portable</a></li>
                   <li><a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.14/Torrentor-1.4.14-mac-universal.dmg"><b>macOS universal DMG</b></a> · <a href="https://github.com/sargeraas84/torrentor/releases/download/v1.4.14/Torrentor-1.4.14-mac-universal.zip">macOS universal ZIP</a></li>
                 </ul>
               </div>
               <div class="card">
+                <h3 style="margin-bottom: 4px;">Prepared for v1.4.15 — clearer source health, actionable 1337x blocks</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">App update — installers not yet published</p>
+                <ul>
+                  <li><b>YTS health checks use a known title.</b> The <code>inception</code> probe returns real API results, so a working API no longer appears broken just because the phrase <code>open movie</code> matched nothing.</li>
+                  <li><b>1337x blocks stay honest.</b> An automated HTTP 403 keeps showing as unavailable; the health row now offers a one-click <b>Open source</b> action instead of attempting to bypass the site's protections.</li>
+                  <li><b>The result overflow menu is fully opaque.</b> Its entrance animation no longer fades/transforms the menu surface over neighboring cards.</li>
+                </ul>
+              </div>
+              <div class="card">
+                <h3 style="margin-bottom: 4px;">Prepared for v1.4.16 — relevance-first search</h3>
+                <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">Search-quality improvement</p>
+                <ul>
+                  <li><b>Best match is now the default.</b> Exact titles and phrase matches rank above loose matches; seeders break relevance ties instead of dominating the result order. Genuine results remain above synthetic Demo entries in every sort mode.</li>
+                  <li><b>Matching uses whole title tokens and handles small typos.</b> A query such as <code>Star Wars</code> favors an exact title over incidental substrings; a one-character misspelling can still match at a lower score, while short words and numeric versions stay exact-only.</li>
+                  <li><b>Choose a different order any time.</b> Most seeders, largest size, and newest remain available in the sort menu.</li>
+                </ul>
+              </div>
+              <div class="card">
                 <h3 style="margin-bottom: 4px;">Additional opt-in engines — Nyaa, YTS, 1337x, EZTV, TorrentDownloads, LimeTorrents and FitGirl</h3>
                 <p style="color: var(--mut2); font-size: 12.5px; margin: 0 0 12px;">Current</p>
                 <ul>
-                  <li><b>Nyaa</b> remains at <code>nyaa.si</code> with RSS search for anime/media releases; <b>YTS</b> uses the official API host for searches and <code>web.yts.gg</code> for source pages.</li>
-                  <li><b>1337x</b> uses <code>1337x.to</code>; its anti-bot protection can return HTTP 403 to automated clients, which Torrentor reports honestly instead of bypassing.</li>
+                  <li><b>Nyaa</b> remains at <code>nyaa.si</code> with RSS search for anime/media releases; <b>YTS</b> uses the YTS JSON API, with a known-title <code>inception</code> probe so source health checks test an actual result.</li>
+                  <li><b>1337x</b> uses <code>1337x.to</code>; its anti-bot protection can return HTTP 403 to automated clients. Torrentor reports that honestly and provides an <b>Open source</b> button instead of bypassing the protection.</li>
                   <li><b>EZTV</b>, <b>TorrentDownloads</b> and <b>LimeTorrents</b> remain separate community choices for movies/TV and broad or new-release searches.</li>
                   <li>Every community source is disabled on fresh installs, uses the proxy-aware network client, and must be deliberately enabled under Settings → Search sources. Sites may change availability or markup, so health results are informational.</li>
                 </ul>
