@@ -67,6 +67,12 @@ contextBridge.exposeInMainWorld('torrentor', {
   copy: bridge('app:copy', (text) => ({ text })),
   openExternal: bridge('app:openExternal', (url) => ({ url })),
 
+  // ----- in-app updates
+  getUpdateStatus: bridge('updates:status'),
+  checkForUpdate: bridge('updates:check'),
+  installUpdate: bridge('updates:install'),
+  onUpdateStatus: (cb) => subscribe('updates:status', cb),
+
   // ----- direct downloads (main-process streaming; hosts allowlisted)
   getDownloads: bridge('downloads:list'),
   getAppliedPlan: bridge('downloads:appliedPlan'),

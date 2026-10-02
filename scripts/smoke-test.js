@@ -867,6 +867,37 @@ async function main() {
     assert.deepStrictEqual(sortResults(list).map((r) => r.title), ['small perfect', 'big generic']);
   });
 
+  ok('calibrated relevance: multi-engine agreement breaks near-ties, never real gaps', () => {
+    const { calibratedRelevance } = require('../lib/orchestrator');
+    const src = (n) => Array.from({ length: n }, (_, i) => ({ sourceId: `e${i}` }));
+    assert.strictEqual(calibratedRelevance({ relevance: 0.8 }), 0.8, 'no sources list behaves as before');
+    assert.strictEqual(calibratedRelevance({ relevance: 0.8, sources: src(1) }), 0.8, 'single engine earns no bonus');
+    assert.strictEqual(calibratedRelevance({ relevance: 0.8, sources: src(2) }), 0.85, 'second engine adds +0.05');
+    assert.strictEqual(calibratedRelevance({ relevance: 0.8, sources: src(9) }), 0.95, 'bonus caps at +0.15');
+    assert.strictEqual(calibratedRelevance({ relevance: 0.97, sources: src(9) }), 1, 'total caps at 1');
+    assert.strictEqual(calibratedRelevance({ relevance: NaN, sources: src(3) }), 0.1, 'unscored results still calibrate safely');
+    const nearTie = [
+      { title: 'solo', demo: false, seeders: 5, relevance: 0.82, sources: src(1) },
+      { title: 'agreed', demo: false, seeders: 5, relevance: 0.8, sources: src(3) },
+    ];
+    assert.deepStrictEqual(sortResults(nearTie).map((r) => r.title), ['agreed', 'solo'], 'agreement wins the near-tie');
+    const realGap = [
+      { title: 'loose', demo: false, seeders: 5, relevance: 0.5, sources: src(5) },
+      { title: 'exact', demo: false, seeders: 5, relevance: 0.95, sources: src(1) },
+    ];
+    assert.deepStrictEqual(sortResults(realGap).map((r) => r.title), ['exact', 'loose'], 'bonus never overrides a real gap');
+  });
+
+  ok('updater stays inert outside packaged builds', async () => {
+    const updater = require('../lib/updater');
+    updater.__reset();
+    assert.strictEqual(updater.init({ packaged: false, onStatus: () => { throw new Error('must not emit'); } }), false);
+    const s = await updater.checkForUpdates();
+    assert.deepStrictEqual(s, { available: false, version: null, downloading: false, progress: 0, downloaded: false, error: null });
+    assert.strictEqual(updater.installAndRestart(), false, 'nothing to install when inert');
+    updater.__reset();
+  });
+
   // ------------------------------ storage ------------------------------
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'torrentor-test-'));
   const store = new Storage(tmp);

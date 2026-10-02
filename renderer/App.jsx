@@ -38,6 +38,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maxed, setMaxed] = useState(false);
   const [toast, setToast] = useState(null);
+  // In-app update status (main owns the download; the banner below owns
+  // the messaging + restart button). Null until the first status arrives.
+  const [update, setUpdate] = useState(null);
   // Source health (Settings → Search sources): last verdicts per engine + a
   // run-in-flight flag. App owns the state + subscription; SettingsModal is
   // a props consumer (same pattern as engines/favorites).
@@ -311,6 +314,13 @@ function App() {
       if (snap.perEngine) setPerEngine(snap.perEngine);
     });
     const unsubHealth = api.onHealthProgress((list) => setHealth(list || []));
+    api
+      .getUpdateStatus()
+      .then((s) => s && (s.available || s.downloaded) && setUpdate(s))
+      .catch(() => {
+        /* non-fatal — updates unsupported in dev */
+      });
+    const unsubUpdate = api.onUpdateStatus((s) => s && (s.available || s.downloaded || s.error) && setUpdate(s));
     const unsubMax = api.onMaximized(setMaxed);
     const unsubDl = api.onDownloadsChanged(({ snapshot, kind, appliedPlan, nightMode }) => {
       setDownloads(snapshot || []);
@@ -358,6 +368,7 @@ function App() {
       unsubHealth();
       unsubMax();
       unsubDl();
+      unsubUpdate();
     };
   }, [refreshDlStats]);
 
@@ -558,6 +569,57 @@ function App() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TitleBar maximized={maxed} />
+      {update && (update.downloaded || update.available) && (
+        <div
+          data-testid="update-banner"
+          style={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '7px 22px',
+            background: 'rgba(34,211,238,0.08)',
+            borderBottom: '1px solid #22d3ee33',
+            color: '#a5e8f5',
+            fontSize: 12.5,
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            {update.downloaded
+              ? `Update ${update.version ? `v${update.version} ` : ''}downloaded — restart to install.`
+              : `Downloading update${update.version ? ` v${update.version}` : ''}${update.downloading ? `… ${update.progress || 0}%` : '…'} Nothing installs until you restart.`}
+          </span>
+          {update.downloaded && (
+            <button
+              type="button"
+              data-testid="update-install"
+              className="app-nodrag"
+              onClick={() => api.installUpdate().catch(() => showToast('Restart to install failed'))}
+              style={{
+                background: '#22d3ee',
+                border: 'none',
+                borderRadius: 8,
+                color: '#06222a',
+                padding: '4px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Restart now
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Dismiss update notice"
+            className="app-nodrag"
+            onClick={() => setUpdate(null)}
+            style={{ background: 'transparent', border: 'none', color: '#5b6b84', cursor: 'pointer', fontSize: 14, padding: '0 2px' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {/* ============================ HEADER ============================ */}

@@ -97,9 +97,12 @@ stronger match. A conservative one-character spelling correction helps recover
 misspelled title searches, but is scored below exact matches; short words and numeric
 versions remain exact-only. Archive.org identifier slugs earn their relevance bonus
 only on whole-token matches too, so incidental substrings can't inflate scores
-through the back door. Seeders break ties, and real results stay ahead of
-synthetic Demo fixtures. Use **Most seeders**, **Largest size**, or **Newest** when
-those are more useful for your search.
+through the back door. When independent engines agree on the same result
+(deduped by infohash), a small corroboration bonus (+0.05 per extra engine,
+capped at +0.15) breaks near-ties — genuine cross-engine evidence that never
+overrides a real relevance gap. Seeders break remaining ties, and real results
+stay ahead of synthetic Demo fixtures. Use **Most seeders**, **Largest size**, or
+**Newest** when those are more useful for your search.
 
 ### Adding more providers
 
@@ -215,16 +218,25 @@ npm run dist       # electron-builder → Windows installer + portable .exe in d
 On **macOS**, the same `npm run dist` produces a universal (Intel + Apple
 Silicon) `.dmg` and `.zip`. The macOS build is **unsigned** — the first launch
 requires right-click → **Open** (Gatekeeper), which is normal for open-source
-apps without an Apple Developer account.
+apps without an Apple Developer account. On **Linux**, it produces a
+`Torrentor-<version>-linux.AppImage` (make executable, then run — no install
+needed).
+
+**In-app updates:** packaged builds check the GitHub release feed shortly
+after boot and download new versions automatically; the app shows a banner
+with download progress and a **Restart now** button once the update is ready.
+Nothing installs until you restart. Dev and test runs never phone home.
 
 **Automated releases:** first make sure the `ci` workflow is green on
 `master` — it runs actionlint over every workflow, the pure-Node suite, and
 (on Windows runners) the Electron IPC + two-boot auto-resume suites, so a
 workflow mistake or a real-app regression can't slip into a release. Then
-push a `v*` tag and CI (`.github/workflows/release.yml`) builds both platforms — Windows
+push a `v*` tag and CI (`.github/workflows/release.yml`) builds all three platforms — Windows
 installer + portable `.exe` on a Windows runner, macOS universal `.dmg` +
-`.zip` on a macOS runner — and opens a **draft release** with everything
-attached. Verify the four artifacts, then Publish it from the Releases page
+`.zip` on a macOS runner, Linux AppImage on an Ubuntu runner — and opens a
+**draft release** with everything attached (installers plus the `latest*.yml`
+feed metadata and blockmaps that power in-app updates). Verify the five artifacts,
+then Publish it from the Releases page
 when ready (a `workflow_dispatch` run builds the same artifacts without a tag):
 
 ```bash

@@ -23,6 +23,7 @@ const { Storage } = require('./lib/storage');
 const registry = require('./indexers/registry');
 const { runSearch, keyOf, mergeIncremental, ENGINE_TIMEOUT_MS } = require('./lib/orchestrator');
 const { runHealthChecks } = require('./lib/health');
+const updater = require('./lib/updater');
 const { isSafeExternalUrl } = require('./lib/magnet');
 const { validateProxyConfig } = network;
 
@@ -139,6 +140,14 @@ async function bootstrap() {
       closeSplash();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
     }, 10000);
+  }
+
+  // In-app updates: packaged builds check the GitHub release feed shortly
+  // after boot (never in dev or smoke runs). Status flows to the renderer,
+  // which owns the banner + restart button.
+  if (updater.init({ packaged: app.isPackaged && !SMOKE_MODE, onStatus: (s) => broadcast('updates:status', s) })) {
+    const t = setTimeout(() => updater.checkForUpdates(), 15000);
+    if (t.unref) t.unref();
   }
 
   // Re-apply the proxy route if the process outlives a config change.
@@ -505,6 +514,12 @@ function registerIpc() {
   // label-only tile in the renderer — this endpoint never throws.
   const exploreCache = new Map(); // q -> { at, thumb }
   const EXPLORE_TTL_MS = 30 * 60 * 1000;
+  // In-app updates: current status, manual re-check, and restart-to-install
+  // (the button only arms once an update is fully downloaded).
+  handle('updates:status', () => updater.snapshot());
+  handle('updates:check', () => updater.checkForUpdates());
+  handle('updates:install', () => updater.installAndRestart());
+
   handle('explore:tiles', async () => {
     const engine = registry.get('archive-org');
     if (!engine || typeof engine.search !== 'function') return [];
