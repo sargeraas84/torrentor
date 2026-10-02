@@ -190,14 +190,16 @@ function App() {
   // One-time keyboard-shortcuts hint: shown until the user engages with the
   // tray's queue controls once, then remembered forever (prefs flag) so it
   // never reappears on later launches.
-  const markKbHintSeen = async () => {
+  // Stable identity so consumers that depend on it (Settings About card
+  // effect) don't re-run on every parent render.
+  const markKbHintSeen = useCallback(async () => {
     try {
       const out = await api.setPrefs({ queueKbHintSeen: true });
       if (out) setPrefsState(out);
     } catch {
       /* non-fatal — hint may show again next launch */
     }
-  };
+  }, []);
   const clearAppliedPlan = async () => {
     try {
       const res = await api.clearAppliedQueuePlan();

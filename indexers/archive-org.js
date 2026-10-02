@@ -18,7 +18,7 @@
 //    relevant even for broad queries.
 // ---------------------------------------------------------------------
 
-const { normalizeResult, sanitizeList, queryMatches, tokenHitScore } = require('./base');
+const { normalizeResult, sanitizeList, queryMatches, queryTokens, tokenHitScore, tokensMatch } = require('./base');
 
 const ENGINE = {
   id: 'archive-org',
@@ -80,6 +80,16 @@ function matchesQuery(doc, query) {
   return queryMatches(query, `${doc.title || ''} ${doc.identifier || ''}`);
 }
 
+/**
+ * Whole-token identifier check for the relevance bonus: at least one
+ * significant query token must match a whole slug token (typo-tolerant).
+ */
+function identifierMatchesQuery(query, id) {
+  const tokens = queryTokens(query);
+  const idTokens = queryTokens(id);
+  return tokens.some((token) => idTokens.some((idToken) => tokensMatch(token, idToken)));
+}
+
 function normalizeItem(doc, query) {
   const id = String(doc.identifier || '').trim();
   const title = String(doc.title || doc.identifier || '').trim();
@@ -99,8 +109,11 @@ function normalizeItem(doc, query) {
   if (m) uploadedAt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getTime();
 
   const cleanTitle = title.replace(/\s+/g, ' ').trim();
-  // Relevance bias: exact/prefix identifier hits and title-token coverage.
-  const identBonus = id.toLowerCase().includes(String(query).toLowerCase()) ? 0.35 : 0;
+  // Relevance bias: whole-token identifier hits (same conservative
+  // one-typo allowance as the honesty gate). A query that merely appears
+  // as a substring of the identifier slug ("art" in "party-time") earns
+  // no bonus — otherwise substring leaks would re-enter through scoring.
+  const identBonus = identifierMatchesQuery(query, id) ? 0.35 : 0;
   const relevance = Math.min(1, tokenHitScore(query, cleanTitle) + identBonus);
 
   return {

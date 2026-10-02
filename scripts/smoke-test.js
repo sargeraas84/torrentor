@@ -217,6 +217,13 @@ async function main() {
     assert.strictEqual(archive.normalizeItem({ identifier: 'i', title: '  ' }, 'q'), null);
     assert.strictEqual(archive.normalizeItem({ identifier: 'mame-roms', title: 'MAME ROMs', downloads: 5, item_size: 100 }, 'ubuntu'), null);
   });
+  ok('archive identifier bonus is whole-token only (no substring leak)', () => {
+    const { tokenHitScore } = require('../indexers/base');
+    const doc = (identifier) => ({ identifier, title: 'Art class', downloads: 5, item_size: 100 });
+    const plain = tokenHitScore('art', 'Art class');
+    assert.strictEqual(archive.normalizeItem(doc('party-time'), 'art').relevance, plain, 'substring-only identifier earns no bonus');
+    assert.strictEqual(archive.normalizeItem(doc('art-class'), 'art').relevance, Math.min(1, plain + 0.35), 'whole-token identifier earns the bonus');
+  });
   ok('archive normalization captures creator/year/description/mediatype', () => {
     const item = archive.normalizeItem(
       {
