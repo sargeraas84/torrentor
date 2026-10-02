@@ -95,7 +95,9 @@ Torrentor defaults to **Best match**: exact whole-token coverage and title phras
 rank results before popularity, so an unrelated high-seeder entry cannot bury a
 stronger match. A conservative one-character spelling correction helps recover
 misspelled title searches, but is scored below exact matches; short words and numeric
-versions remain exact-only. Seeders break ties, and real results stay ahead of
+versions remain exact-only. Archive.org identifier slugs earn their relevance bonus
+only on whole-token matches too, so incidental substrings can't inflate scores
+through the back door. Seeders break ties, and real results stay ahead of
 synthetic Demo fixtures. Use **Most seeders**, **Largest size**, or **Newest** when
 those are more useful for your search.
 
